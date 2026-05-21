@@ -90,3 +90,21 @@ def test_cli_example_runs(tmp_path: Path) -> None:
     assert main(["simulate", "--events", str(root / "examples/synthetic-book/events.csv"), "--assumptions", str(root / "examples/synthetic-book/assumptions.yaml"), "--json-out", str(report)]) == 0
     assert main(["gate", "--report", str(report), "--md-out", str(md)]) == 0
     assert md.exists()
+
+
+def test_init_example_copies_fixture_and_refuses_overwrite(tmp_path: Path) -> None:
+    out_dir = tmp_path / "starter"
+
+    assert main(["init-example", "synthetic-book", "--out-dir", str(out_dir)]) == 0
+
+    copied = out_dir / "synthetic-book"
+    assert (copied / "events.csv").exists()
+    assert (copied / "assumptions.yaml").exists()
+    assert (copied / "README.md").exists()
+    assert main(["validate-events", "--events", str(copied / "events.csv")]) == 0
+    try:
+        main(["init-example", "synthetic-book", "--out-dir", str(out_dir)])
+    except SystemExit as exc:
+        assert "refusing to overwrite" in str(exc)
+    else:  # pragma: no cover - defensive clarity for the assertion above
+        raise AssertionError("init-example overwrote an existing fixture")

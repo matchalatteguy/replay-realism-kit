@@ -63,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{gate.severity.value}: {gate.name}: {gate.reason_code}")
         return gate_exit_code(gates)
     if args.command == "init-example":
-        src = Path(__file__).resolve().parents[2] / "examples" / args.name
+        src = _example_source_dir(args.name)
         dst = Path(args.out_dir) / args.name
         if dst.exists():
             raise SystemExit(f"refusing to overwrite existing example directory: {dst}")
@@ -71,6 +71,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"copied {dst}")
         return 0
     raise AssertionError(args.command)
+
+
+def _example_source_dir(name: str) -> Path:
+    """Return the bundled example path in source trees and built wheels."""
+    package_example = Path(__file__).resolve().parent / "examples" / name
+    if package_example.exists():
+        return package_example
+    source_tree_example = Path(__file__).resolve().parents[2] / "examples" / name
+    if source_tree_example.exists():
+        return source_tree_example
+    raise SystemExit(f"bundled example is missing from the package: {name}")
 
 
 def _simulate_decisions(events, assumptions):

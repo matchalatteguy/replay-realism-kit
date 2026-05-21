@@ -22,7 +22,7 @@ dependencies = ["PyYAML>=6.0.1"]
 replay-realism = "replay_realism.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8.0", "ruff>=0.6"]
+dev = ["build>=1.2", "pytest>=8.0", "ruff>=0.6"]
 
 [build-system]
 requires = ["hatchling"]
@@ -30,6 +30,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/replay_realism"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"examples/synthetic-book" = "replay_realism/examples/synthetic-book"
 
 [tool.ruff]
 line-length = 100
