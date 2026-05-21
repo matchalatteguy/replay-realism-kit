@@ -15,9 +15,20 @@ class MarkoutResult:
     reason_code: str
 
 
-def future_midpoint(events: list[ReplayEvent], fill_timestamp: int, horizon_ms: int) -> Decimal | None:
+def future_midpoint(
+    events: list[ReplayEvent],
+    fill_timestamp: int,
+    horizon_ms: int,
+    instrument_id: str | None = None,
+) -> Decimal | None:
     target = fill_timestamp + horizon_ms
-    candidates = [event for event in events if isinstance(event, BookEvent) and event.timestamp >= target]
+    candidates = [
+        event
+        for event in events
+        if isinstance(event, BookEvent)
+        and event.timestamp >= target
+        and (instrument_id is None or event.instrument_id == instrument_id)
+    ]
     if not candidates:
         return None
     return min(candidates, key=lambda event: event.sort_key).midpoint

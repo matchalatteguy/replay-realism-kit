@@ -19,6 +19,29 @@ def test_latency_and_future_only_markout() -> None:
     assert future_midpoint(events, 100, 50) == Decimal("101")
 
 
+def test_future_midpoint_can_be_scoped_to_fill_instrument() -> None:
+    events = [
+        BookEvent(
+            timestamp=150,
+            sequence=1,
+            instrument_id="BAR",
+            bid_price=Decimal("49"),
+            ask_price=Decimal("51"),
+        ),
+        BookEvent(
+            timestamp=200,
+            sequence=2,
+            instrument_id="FOO",
+            bid_price=Decimal("99"),
+            ask_price=Decimal("101"),
+        ),
+    ]
+
+    midpoint = future_midpoint(events, 100, 50, instrument_id="FOO")
+
+    assert midpoint == Decimal("100")
+
+
 def test_reports_and_gates_pass(tmp_path: Path) -> None:
     assumptions = ExecutionAssumptionProfile("demo", 10, 250, FeeModel(Decimal("1"), Decimal("5")))
     request = FillRequest("FOO", OrderSide.BUY, OrderType.TAKER, Decimal("1"), Decimal("100"), 0)
@@ -43,6 +66,20 @@ def test_gate_fails_closed_when_required_markout_field_is_missing() -> None:
 
     assert gate_exit_code(gates) == 1
     assert any(gate.reason_code == "missing-future-markout" for gate in gates)
+
+
+def test_gate_exempts_unfilled_rows_from_required_markout() -> None:
+    report = {
+        "assumptions": ExecutionAssumptionProfile("demo", 10, 250, FeeModel(Decimal("1"), Decimal("5"))).to_dict(),
+        "summary": {"fill_count": 1},
+        "fills": [
+            {"reason_code": "insufficient-crossable-depth", "filled_size": "0", "markout": None}
+        ],
+    }
+
+    gates = validate_replay_report(report)
+
+    assert gate_exit_code(gates) == 0
 
 
 def test_cli_example_runs(tmp_path: Path) -> None:

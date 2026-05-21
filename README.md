@@ -27,53 +27,53 @@ Replay Realism Kit is not:
 
 All examples are synthetic and invented for testing/documentation. They do not come from a real venue or private trading history.
 
-## Install
+## First five minutes
 
-This repository uses `uv` and Python 3.11+.
+Prerequisites: Python 3.11+ and `uv`.
 
 ```bash
 uv sync
+mkdir -p reports
+uv run replay-realism validate-events --events examples/synthetic-book/events.csv
+uv run replay-realism simulate \
+  --events examples/synthetic-book/events.csv \
+  --assumptions examples/synthetic-book/assumptions.yaml \
+  --json-out reports/replay.json
+uv run replay-realism gate \
+  --report reports/replay.json \
+  --md-out reports/replay-review.md
 ```
 
-Run the test and lint gates locally:
+Expected gate output:
+
+```text
+pass: assumption-profile: reviewable-assumptions
+pass: fee-model: explicit-fee-model
+pass: sample-count: sufficient-sample-for-demo
+pass: future-markout: future-only-markouts
+pass: stale-book: no-stale-book-fills
+```
+
+Then run the local project checks:
 
 ```bash
 uv run pytest
 uv run ruff check
 ```
 
-## Quickstart
+For a guided walkthrough, troubleshooting table, and safe first edits, see `docs/onboarding.md`.
 
-Validate the bundled synthetic event file:
+## How the bundled example works
 
-```bash
-uv run replay-realism validate-events --events examples/synthetic-book/events.csv
-```
+`examples/synthetic-book/` contains a tiny invented replay story for `FOO-USD`:
 
-Run a replay and write a JSON report:
+1. a starting top-of-book snapshot;
+2. a hypothetical taker buy decision;
+3. a future book after the configured latency;
+4. a synthetic trade row useful for maker-fill examples;
+5. a later book used for future-only markout.
 
-```bash
-uv run replay-realism simulate \
-  --events examples/synthetic-book/events.csv \
-  --assumptions examples/synthetic-book/assumptions.yaml \
-  --json-out reports/replay.json
-```
-
-Gate the report and write a Markdown review:
-
-```bash
-uv run replay-realism gate \
-  --report reports/replay.json \
-  --md-out reports/replay-review.md
-```
-
-Passing gates exit with code `0`. Required failures exit non-zero, so the command can be used in local scripts or CI checks.
-
-Copy the bundled example into another directory:
-
-```bash
-uv run replay-realism init-example synthetic-book --out-dir scratch-examples
-```
+The event stream is deliberately small enough to inspect by eye. Use it as a format reference, not as market data.
 
 ## Synthetic event format
 
@@ -193,12 +193,27 @@ Gate output is a list of stable `pass`/`fail` results with reason codes and huma
 
 ## Documentation
 
+- `docs/onboarding.md` gives the first-five-minute setup path, repository map, and troubleshooting notes.
+- `docs/llm-agent-guide.md` gives guardrails for automated assistants editing the project.
 - `docs/assumptions.md` explains assumption profiles, fee handling, and safety levels.
 - `docs/fill-policies.md` explains conservative maker/taker semantics and reason codes.
 - `docs/quality-gates.md` explains gate results, report contracts, and CI usage.
 - `docs/api-and-cli.md` gives task-oriented API and CLI recipes.
 - `examples/synthetic-book/README.md` walks through the bundled offline fixture.
+- `CONTRIBUTING.md` gives the local contribution workflow and public-safe checklist.
 - `PUBLIC_SAFETY_REVIEW.md` records the local public-safety review status and boundaries.
+
+## Repository map
+
+```text
+README.md                         project overview and quickstart
+CONTRIBUTING.md                    contribution workflow and public-safe checklist
+examples/synthetic-book/           tiny invented replay fixture
+docs/                              onboarding, API, assumption, fill, gate, and agent docs
+src/replay_realism/                package source
+tests/                             offline pytest suite
+PUBLIC_SAFETY_REVIEW.md            public-safety boundary notes
+```
 
 ## Project status
 

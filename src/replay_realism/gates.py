@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from typing import Any
 
@@ -45,7 +46,9 @@ def validate_replay_report(report: dict[str, Any]) -> list[QualityGateResult]:
     else:
         gates.append(_fail("sample-count", "low-sample-count", "No fill results are present."))
 
-    missing_markouts = [fill for fill in fills if _markout_reason(fill) != "ok"]
+    missing_markouts = [
+        fill for fill in fills if _is_filled_row(fill) and _markout_reason(fill) != "ok"
+    ]
     if assumptions.get("require_future_markout") and missing_markouts:
         gates.append(_fail("future-markout", "missing-future-markout", "All filled rows need future-only markouts."))
     else:
@@ -69,6 +72,16 @@ def _markout_reason(fill: dict[str, Any]) -> str | None:
         return None
     reason = markout.get("reason_code")
     return str(reason) if reason is not None else None
+
+
+def _is_filled_row(fill: dict[str, Any]) -> bool:
+    raw_size = fill.get("filled_size")
+    if raw_size is not None:
+        try:
+            return Decimal(str(raw_size)) > 0
+        except (InvalidOperation, ValueError):
+            return True
+    return fill.get("reason_code") in {"filled", "partial-fill"}
 
 
 def _pass(name: str, reason_code: str, message: str) -> QualityGateResult:

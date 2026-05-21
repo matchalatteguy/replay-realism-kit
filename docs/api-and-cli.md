@@ -1,6 +1,17 @@
 # API and CLI usage notes
 
-This page gives task-oriented recipes for outside engineers and LLM agents using Replay Realism Kit on small local fixtures.
+This page gives task-oriented recipes for outside engineers and LLM agents using Replay Realism Kit on small local fixtures. If you are setting up the repository for the first time, start with `docs/onboarding.md`; this page is the reference for day-to-day command and API use.
+
+## Command summary
+
+```text
+replay-realism validate-events --events PATH
+replay-realism simulate --events PATH --assumptions PATH --json-out PATH
+replay-realism gate --report PATH [--md-out PATH]
+replay-realism init-example synthetic-book [--out-dir PATH]
+```
+
+All commands are offline and operate on local files.
 
 ## Validate local events
 

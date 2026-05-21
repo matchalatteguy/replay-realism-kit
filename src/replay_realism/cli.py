@@ -105,7 +105,9 @@ def _simulate_decisions(events, assumptions):
                 fill = simulate_maker_fill(request, [], assumptions)
         else:
             fill = simulate_maker_fill(request, trade_events, assumptions)
-        midpoint = future_midpoint(events, fill.arrival_timestamp, 100)
+        midpoint = future_midpoint(
+            events, fill.arrival_timestamp, 100, instrument_id=fill.request.instrument_id
+        )
         markout = compute_markout(fill, midpoint, horizon_ms=100)
         outputs.append((fill, markout))
     return outputs

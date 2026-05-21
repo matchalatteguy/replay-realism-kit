@@ -99,22 +99,40 @@ def _parse_event_row(row: dict[str, str], row_number: int) -> ReplayEvent:
     if not base["instrument_id"]:
         raise ValueError(f"row {row_number}: instrument_id is required")
     if event_type == "book":
+        bid_price = _decimal(row, "bid_price", row_number)
+        bid_size = _decimal(row, "bid_size", row_number)
+        ask_price = _decimal(row, "ask_price", row_number)
+        ask_size = _decimal(row, "ask_size", row_number)
+        for field_name, value in (
+            ("bid_price", bid_price),
+            ("bid_size", bid_size),
+            ("ask_price", ask_price),
+            ("ask_size", ask_size),
+        ):
+            if value <= 0:
+                raise ValueError(f"row {row_number}: {field_name} must be positive")
         return BookEvent(
             **base,
-            bid_price=_decimal(row, "bid_price", row_number),
-            bid_size=_decimal(row, "bid_size", row_number),
-            ask_price=_decimal(row, "ask_price", row_number),
-            ask_size=_decimal(row, "ask_size", row_number),
+            bid_price=bid_price,
+            bid_size=bid_size,
+            ask_price=ask_price,
+            ask_size=ask_size,
         )
     if event_type == "trade":
         side = (row.get("side") or "").strip().lower()
         if side not in {"buy", "sell"}:
             raise ValueError(f"row {row_number}: trade side must be buy or sell")
+        price = _decimal(row, "price", row_number)
+        size = _decimal(row, "size", row_number)
+        if price <= 0:
+            raise ValueError(f"row {row_number}: price must be positive")
+        if size <= 0:
+            raise ValueError(f"row {row_number}: size must be positive")
         return TradeEvent(
             **base,
             side=side,  # type: ignore[arg-type]
-            price=_decimal(row, "price", row_number),
-            size=_decimal(row, "size", row_number),
+            price=price,
+            size=size,
         )
     if event_type == "decision":
         side = (row.get("side") or "").strip().lower()
@@ -123,11 +141,17 @@ def _parse_event_row(row: dict[str, str], row_number: int) -> ReplayEvent:
             raise ValueError(f"row {row_number}: decision side must be buy or sell")
         if order_type not in {"maker", "taker"}:
             raise ValueError(f"row {row_number}: order_type must be maker or taker")
+        size = _decimal(row, "size", row_number)
+        limit_price = _decimal(row, "limit_price", row_number)
+        if size <= 0:
+            raise ValueError(f"row {row_number}: size must be positive")
+        if limit_price <= 0:
+            raise ValueError(f"row {row_number}: limit_price must be positive")
         return DecisionEvent(
             **base,
             side=side,  # type: ignore[arg-type]
-            size=_decimal(row, "size", row_number),
-            limit_price=_decimal(row, "limit_price", row_number),
+            size=size,
+            limit_price=limit_price,
             order_type=order_type,  # type: ignore[arg-type]
         )
     raise ValueError(f"row {row_number}: unsupported event_type {event_type!r}")
