@@ -129,6 +129,8 @@ def simulate_taker_fill(
         return _empty(request, arrival, "fok-not-filled", evidence)
     if filled <= 0:
         return _empty(request, arrival, "insufficient-crossable-depth", evidence)
+    if not assumptions.allow_partial_fills and remaining > 0:
+        return _empty(request, arrival, "partial-fill-not-allowed", evidence)
     average = notional / filled
     fee = assumptions.fee_model.fee_for(notional, "taker")
     signed_slippage = (average - request.limit_price) if request.side == OrderSide.BUY else (request.limit_price - average)
@@ -185,6 +187,8 @@ def simulate_maker_fill(
     if filled <= 0:
         reason = "queue-not-exhausted" if remaining_queue > 0 else "no-post-arrival-trade"
         return _empty(request, arrival, reason, evidence)
+    if not assumptions.allow_partial_fills and remaining_order > 0:
+        return _empty(request, arrival, "partial-fill-not-allowed", evidence)
     fee = assumptions.fee_model.fee_for(notional, "maker")
     return FillResult(
         request=request,

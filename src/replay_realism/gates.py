@@ -45,7 +45,7 @@ def validate_replay_report(report: dict[str, Any]) -> list[QualityGateResult]:
     else:
         gates.append(_fail("sample-count", "low-sample-count", "No fill results are present."))
 
-    missing_markouts = [fill for fill in fills if fill.get("markout", {}).get("reason_code") != "ok"]
+    missing_markouts = [fill for fill in fills if _markout_reason(fill) != "ok"]
     if assumptions.get("require_future_markout") and missing_markouts:
         gates.append(_fail("future-markout", "missing-future-markout", "All filled rows need future-only markouts."))
     else:
@@ -61,6 +61,14 @@ def validate_replay_report(report: dict[str, Any]) -> list[QualityGateResult]:
 
 def gate_exit_code(gates: list[QualityGateResult]) -> int:
     return 1 if any(not gate.passed for gate in gates) else 0
+
+
+def _markout_reason(fill: dict[str, Any]) -> str | None:
+    markout = fill.get("markout")
+    if not isinstance(markout, dict):
+        return None
+    reason = markout.get("reason_code")
+    return str(reason) if reason is not None else None
 
 
 def _pass(name: str, reason_code: str, message: str) -> QualityGateResult:

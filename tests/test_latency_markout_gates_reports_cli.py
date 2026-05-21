@@ -32,6 +32,19 @@ def test_reports_and_gates_pass(tmp_path: Path) -> None:
     assert gate_exit_code(gates) == 0
 
 
+def test_gate_fails_closed_when_required_markout_field_is_missing() -> None:
+    report = {
+        "assumptions": ExecutionAssumptionProfile("demo", 10, 250, FeeModel(Decimal("1"), Decimal("5"))).to_dict(),
+        "summary": {"fill_count": 1},
+        "fills": [{"reason_code": "filled", "markout": None}],
+    }
+
+    gates = validate_replay_report(report)
+
+    assert gate_exit_code(gates) == 1
+    assert any(gate.reason_code == "missing-future-markout" for gate in gates)
+
+
 def test_cli_example_runs(tmp_path: Path) -> None:
     root = Path(__file__).resolve().parents[1]
     report = tmp_path / "replay.json"
