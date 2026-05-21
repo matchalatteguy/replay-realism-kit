@@ -198,6 +198,7 @@ Gate output is a list of stable `pass`/`fail` results with reason codes and huma
 - `docs/quality-gates.md` explains gate results, report contracts, and CI usage.
 - `docs/api-and-cli.md` gives task-oriented API and CLI recipes.
 - `examples/synthetic-book/README.md` walks through the bundled offline fixture.
+- `PUBLIC_SAFETY_REVIEW.md` records the local public-safety review status and boundaries.
 
 ## Project status
 
