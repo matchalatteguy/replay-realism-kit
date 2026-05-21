@@ -1,0 +1,12 @@
+name: conservative-demo
+latency_ms: 50
+stale_book_ms: 250
+tick_size: "0.01"
+min_size: "0.0001"
+allow_partial_fills: true
+require_future_markout: true
+fee_model:
+  name: demo-bps-fees
+  maker_bps: "1"
+  taker_bps: "5"
+  explicit_zero_fees: false

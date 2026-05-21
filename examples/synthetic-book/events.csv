@@ -1,0 +1,6 @@
+event_type,timestamp,sequence,instrument_id,venue_id,source,bid_price,bid_size,ask_price,ask_size,side,price,size,limit_price,order_type
+book,1000,1,FOO-USD,SIM,fixture,99.90,10,100.00,5,,,,,
+decision,1010,2,FOO-USD,SIM,fixture,,,,,buy,,2,100.00,taker
+book,1060,3,FOO-USD,SIM,fixture,99.95,10,100.00,5,,,,,
+trade,1070,4,FOO-USD,SIM,fixture,,,,,sell,100.00,3,,
+book,1200,5,FOO-USD,SIM,fixture,100.05,10,100.15,5,,,,,
