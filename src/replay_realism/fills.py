@@ -78,7 +78,9 @@ def _violates_tick(value: Decimal, tick_size: Decimal) -> bool:
     return value % tick_size != 0
 
 
-def _empty(request: FillRequest, arrival: int, reason: str, evidence: list[str] | None = None) -> FillResult:
+def _empty(
+    request: FillRequest, arrival: int, reason: str, evidence: list[str] | None = None
+) -> FillResult:
     return FillResult(
         request=request,
         arrival_timestamp=arrival,
@@ -116,7 +118,11 @@ def simulate_taker_fill(
     notional = Decimal("0")
     evidence: list[str] = []
     for price, available in levels:
-        crossable = price <= request.limit_price if request.side == OrderSide.BUY else price >= request.limit_price
+        crossable = (
+            price <= request.limit_price
+            if request.side == OrderSide.BUY
+            else price >= request.limit_price
+        )
         if not crossable or remaining <= 0:
             break
         take = min(remaining, available)
@@ -133,7 +139,11 @@ def simulate_taker_fill(
         return _empty(request, arrival, "partial-fill-not-allowed", evidence)
     average = notional / filled
     fee = assumptions.fee_model.fee_for(notional, "taker")
-    signed_slippage = (average - request.limit_price) if request.side == OrderSide.BUY else (request.limit_price - average)
+    signed_slippage = (
+        (average - request.limit_price)
+        if request.side == OrderSide.BUY
+        else (request.limit_price - average)
+    )
     return FillResult(
         request=request,
         arrival_timestamp=arrival,
@@ -166,8 +176,14 @@ def simulate_maker_fill(
         if trade.timestamp < arrival or trade.instrument_id != request.instrument_id:
             continue
         consumes_our_side = (
-            request.side == OrderSide.BUY and trade.side == "sell" and trade.price <= request.limit_price
-        ) or (request.side == OrderSide.SELL and trade.side == "buy" and trade.price >= request.limit_price)
+            request.side == OrderSide.BUY
+            and trade.side == "sell"
+            and trade.price <= request.limit_price
+        ) or (
+            request.side == OrderSide.SELL
+            and trade.side == "buy"
+            and trade.price >= request.limit_price
+        )
         if not consumes_our_side:
             continue
         residual = trade.size

@@ -38,7 +38,9 @@ uv run replay-realism validate-events --events examples/synthetic-book/events.cs
 uv run replay-realism simulate \
   --events examples/synthetic-book/events.csv \
   --assumptions examples/synthetic-book/assumptions.yaml \
-  --json-out reports/replay.json
+  --json-out reports/replay.json \
+  --maker-queue-ahead 1 \
+  --markout-horizon-ms 100
 uv run replay-realism gate \
   --report reports/replay.json \
   --md-out reports/replay-review.md
@@ -93,6 +95,8 @@ book,1000,1,FOO-USD,SIM,fixture,99.90,10,100.00,5,,,,,
 decision,1010,2,FOO-USD,SIM,fixture,,,,,buy,,2,100.00,taker
 book,1060,3,FOO-USD,SIM,fixture,99.95,10,100.00,5,,,,,
 ```
+
+For the complete column contract, required fields by event type, validation errors, and adapter cautions, see `docs/event-schema.md`.
 
 ## Assumption profile
 
@@ -163,6 +167,7 @@ Important public objects:
 - `ReplayEvent`, `BookEvent`, `TradeEvent`, `DecisionEvent`, `load_events_csv`
 - `ExecutionAssumptionProfile`, `SafetyLevel`, `FeeModel`
 - `BookSnapshot`, `FillRequest`, `FillResult`, `OrderSide`, `OrderType`, `FillPolicy`
+- `ReplaySimulationConfig`, `simulate_replay`, `simulate_decision`
 - `simulate_taker_fill`, `simulate_maker_fill`
 - `future_midpoint`, `compute_markout`, `MarkoutResult`
 - `ReplayReport`, `write_json_report`, `write_markdown_report`
@@ -172,12 +177,12 @@ Important public objects:
 
 ```text
 replay-realism validate-events --events PATH
-replay-realism simulate --events PATH --assumptions PATH --json-out PATH
+replay-realism simulate --events PATH --assumptions PATH --json-out PATH [--maker-queue-ahead DECIMAL] [--markout-horizon-ms INT]
 replay-realism gate --report PATH [--md-out PATH]
 replay-realism init-example synthetic-book [--out-dir PATH]
 ```
 
-The current `simulate` command is a deterministic demo runner for small local fixtures. It is meant for tests, examples, and report-shape validation rather than large historical replay jobs.
+The current `simulate` command is a deterministic demo runner for small local fixtures. It is meant for tests, examples, and report-shape validation rather than large historical replay jobs. Use `--maker-queue-ahead` and `--markout-horizon-ms` to make queue and future-markout assumptions explicit at the CLI boundary.
 
 ## Quality gates
 
@@ -189,13 +194,16 @@ The default gate checks fail closed when:
 - future markouts are required but missing;
 - stale-book fills appear in the report.
 
-Gate output is a list of stable `pass`/`fail` results with reason codes and human messages. See `docs/quality-gates.md`.
+Gate output is a list of stable `pass`/`fail` results with reason codes and human messages. Gates also fail closed on malformed report shape such as `summary.fill_count` disagreeing with the number of fill rows. See `docs/quality-gates.md` and the versioned JSON contract in `docs/report-schema.md`.
 
 ## Documentation
 
 - `docs/onboarding.md` gives the first-five-minute setup path, repository map, and troubleshooting notes.
 - `docs/llm-agent-guide.md` gives guardrails for automated assistants editing the project.
 - `docs/assumptions.md` explains assumption profiles, fee handling, and safety levels.
+- `docs/event-schema.md` defines the normalized CSV contract and validation errors.
+- `docs/report-schema.md` defines the versioned JSON report contract.
+- `docs/adapter-guide.md` shows how to normalize private logs into public-safe events.
 - `docs/fill-policies.md` explains conservative maker/taker semantics and reason codes.
 - `docs/quality-gates.md` explains gate results, report contracts, and CI usage.
 - `docs/api-and-cli.md` gives task-oriented API and CLI recipes.
@@ -209,6 +217,7 @@ Gate output is a list of stable `pass`/`fail` results with reason codes and huma
 README.md                         project overview and quickstart
 CONTRIBUTING.md                    contribution workflow and public-safe checklist
 examples/synthetic-book/           tiny invented replay fixture
+examples/failure-cases/            intentional gate-failure examples
 docs/                              onboarding, API, assumption, fill, gate, and agent docs
 src/replay_realism/                package source
 tests/                             offline pytest suite

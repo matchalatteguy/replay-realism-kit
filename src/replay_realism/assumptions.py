@@ -49,6 +49,7 @@ class ExecutionAssumptionProfile:
     def to_dict(self) -> dict[str, object]:
         return {
             "name": self.name,
+            "description": self.description,
             "latency_ms": self.latency_ms,
             "stale_book_ms": self.stale_book_ms,
             "tick_size": str(self.tick_size),
@@ -65,22 +66,33 @@ class ExecutionAssumptionProfile:
         }
 
 
+def _yaml_bool(data: dict[str, object], key: str, default: bool) -> bool:
+    value = data.get(key, default)
+    if not isinstance(value, bool):
+        raise ValueError(f"{key} must be a YAML boolean (true or false), got {value!r}")
+    return value
+
+
 def load_assumption_profile(path: str | Path) -> ExecutionAssumptionProfile:
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     fee = data.get("fee_model") or {}
+    if not isinstance(data, dict):
+        raise ValueError("assumption profile must be a YAML mapping")
+    if not isinstance(fee, dict):
+        raise ValueError("fee_model must be a YAML mapping")
     return ExecutionAssumptionProfile(
         name=str(data.get("name") or "local-profile"),
         latency_ms=int(data.get("latency_ms", 0)),
         stale_book_ms=int(data.get("stale_book_ms", 250)),
         tick_size=Decimal(str(data.get("tick_size", "0.01"))),
         min_size=Decimal(str(data.get("min_size", "0.0001"))),
-        allow_partial_fills=bool(data.get("allow_partial_fills", True)),
-        require_future_markout=bool(data.get("require_future_markout", True)),
+        allow_partial_fills=_yaml_bool(data, "allow_partial_fills", True),
+        require_future_markout=_yaml_bool(data, "require_future_markout", True),
         description=str(data.get("description") or ""),
         fee_model=FeeModel(
             maker_bps=Decimal(str(fee.get("maker_bps", "0"))),
             taker_bps=Decimal(str(fee.get("taker_bps", "0"))),
             name=str(fee.get("name") or "configured-fees"),
-            explicit_zero_fees=bool(fee.get("explicit_zero_fees", False)),
+            explicit_zero_fees=_yaml_bool(fee, "explicit_zero_fees", False),
         ),
     )

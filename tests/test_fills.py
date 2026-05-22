@@ -41,7 +41,15 @@ def test_taker_fill_consumes_depth_and_fok_differs() -> None:
     assert fill.reason_code == "partial-fill"
     assert fill.filled_size == Decimal("1")
     fok = simulate_taker_fill(
-        FillRequest("FOO", OrderSide.BUY, OrderType.TAKER, Decimal("2"), Decimal("100"), 0, policy=FillPolicy.FOK),
+        FillRequest(
+            "FOO",
+            OrderSide.BUY,
+            OrderType.TAKER,
+            Decimal("2"),
+            Decimal("100"),
+            0,
+            policy=FillPolicy.FOK,
+        ),
         book,
         profile(),
     )

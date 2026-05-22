@@ -6,7 +6,7 @@ This page gives task-oriented recipes for outside engineers and LLM agents using
 
 ```text
 replay-realism validate-events --events PATH
-replay-realism simulate --events PATH --assumptions PATH --json-out PATH
+replay-realism simulate --events PATH --assumptions PATH --json-out PATH [--maker-queue-ahead DECIMAL] [--markout-horizon-ms INT]
 replay-realism gate --report PATH [--md-out PATH]
 replay-realism init-example synthetic-book [--out-dir PATH]
 ```
@@ -27,6 +27,8 @@ Expected output shape:
 validated 5 events
 ```
 
+For the full CSV contract, see `docs/event-schema.md`. Parser errors include row numbers and field names so invalid rows can be fixed without reverse engineering the loader.
+
 ## Simulate a replay
 
 `simulate` reads local events and an assumption profile, then writes a JSON report.
@@ -35,7 +37,9 @@ validated 5 events
 uv run replay-realism simulate \
   --events examples/synthetic-book/events.csv \
   --assumptions examples/synthetic-book/assumptions.yaml \
-  --json-out reports/replay.json
+  --json-out reports/replay.json \
+  --maker-queue-ahead 1 \
+  --markout-horizon-ms 100
 ```
 
 The MVP simulator is intentionally compact. It is best for:
@@ -45,7 +49,27 @@ The MVP simulator is intentionally compact. It is best for:
 - creating fixtures for quality-gate tests;
 - teaching future-only markout rules.
 
-It is not intended as a high-throughput historical data engine.
+It is not intended as a high-throughput historical data engine. Use `--maker-queue-ahead` when you want maker examples to assume a different amount of synthetic size ahead of the order, and `--markout-horizon-ms` when your fixture has a different future-book spacing.
+
+## Programmatic replay simulation
+
+Use `simulate_replay` when you want the same deterministic report-building behavior as the CLI without shelling out:
+
+```python
+from decimal import Decimal
+
+from replay_realism import ReplaySimulationConfig, load_events_csv, simulate_replay
+from replay_realism.assumptions import load_assumption_profile
+
+assumptions = load_assumption_profile("examples/synthetic-book/assumptions.yaml")
+events = load_events_csv("examples/synthetic-book/events.csv")
+report = simulate_replay(
+    events,
+    assumptions,
+    ReplaySimulationConfig(maker_queue_ahead=Decimal("1"), markout_horizon_ms=100),
+)
+assert report.to_dict()["summary"]["fill_count"] >= 1
+```
 
 ## Gate a report
 
@@ -171,7 +195,7 @@ gates = validate_replay_report(report.to_dict())
 write_markdown_report(report, "reports/replay-review.md", gates)
 ```
 
-If `require_future_markout` is true, pass real `MarkoutResult` objects instead of `None` for filled rows.
+If `require_future_markout` is true, pass real `MarkoutResult` objects instead of `None` for filled rows. JSON reports include `schema_version: replay-realism-report/v1`; see `docs/report-schema.md` for the stable fields and reason-code guidance.
 
 ## Data hygiene
 

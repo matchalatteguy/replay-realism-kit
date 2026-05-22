@@ -5,8 +5,8 @@ Thanks for improving Replay Realism Kit. The project is intentionally small, off
 ## Local workflow
 
 ```bash
-uv sync
-uv run pytest
+uv sync --group dev
+uv run --group dev pytest
 uv run ruff check
 ```
 
@@ -37,7 +37,7 @@ uv run replay-realism gate --report reports/replay.json --md-out reports/replay-
 
 Before proposing a change, verify:
 
-- [ ] `uv run pytest` passes.
+- [ ] `uv run --group dev pytest` passes.
 - [ ] `uv run ruff check` passes.
 - [ ] README or docs are updated for user-visible behavior changes.
 - [ ] New examples use invented instruments such as `FOO-USD`, `BAR-USD`, or `instrument-A`.

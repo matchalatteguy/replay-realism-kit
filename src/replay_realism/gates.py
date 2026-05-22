@@ -30,19 +30,51 @@ def validate_replay_report(report: dict[str, Any]) -> list[QualityGateResult]:
     summary = report.get("summary") or {}
     fills = report.get("fills") or []
 
+    if not isinstance(fills, list):
+        gates.append(_fail("report-shape", "fills-not-list", "Report fills must be a list."))
+        fills = []
+
     if assumptions.get("safety_level") == "reviewable":
-        gates.append(_pass("assumption-profile", "reviewable-assumptions", "Assumptions are explicit and reviewable."))
+        gates.append(
+            _pass(
+                "assumption-profile",
+                "reviewable-assumptions",
+                "Assumptions are explicit and reviewable.",
+            )
+        )
     else:
-        gates.append(_fail("assumption-profile", "optimistic-or-incomplete-assumptions", "Assumptions are not reviewable."))
+        gates.append(
+            _fail(
+                "assumption-profile",
+                "optimistic-or-incomplete-assumptions",
+                "Assumptions are not reviewable.",
+            )
+        )
 
     if (assumptions.get("fee_model") or {}).get("name"):
         gates.append(_pass("fee-model", "explicit-fee-model", "Fee model is explicit."))
     else:
-        gates.append(_fail("fee-model", "missing-fee-model", "Report must include an explicit fee model."))
+        gates.append(
+            _fail("fee-model", "missing-fee-model", "Report must include an explicit fee model.")
+        )
 
-    sample_count = int(summary.get("fill_count", len(fills)) or 0)
+    summary_fill_count = int(summary.get("fill_count", len(fills)) or 0)
+    if summary_fill_count != len(fills):
+        gates.append(
+            _fail(
+                "report-consistency",
+                "summary-fill-count-mismatch",
+                "Summary fill_count must match the number of fill rows.",
+            )
+        )
+
+    sample_count = len(fills)
     if sample_count >= 1:
-        gates.append(_pass("sample-count", "sufficient-sample-for-demo", "At least one fill result is present."))
+        gates.append(
+            _pass(
+                "sample-count", "sufficient-sample-for-demo", "At least one fill result is present."
+            )
+        )
     else:
         gates.append(_fail("sample-count", "low-sample-count", "No fill results are present."))
 
@@ -50,13 +82,27 @@ def validate_replay_report(report: dict[str, Any]) -> list[QualityGateResult]:
         fill for fill in fills if _is_filled_row(fill) and _markout_reason(fill) != "ok"
     ]
     if assumptions.get("require_future_markout") and missing_markouts:
-        gates.append(_fail("future-markout", "missing-future-markout", "All filled rows need future-only markouts."))
+        gates.append(
+            _fail(
+                "future-markout",
+                "missing-future-markout",
+                "All filled rows need future-only markouts.",
+            )
+        )
     else:
-        gates.append(_pass("future-markout", "future-only-markouts", "Future-only markouts are present or not required."))
+        gates.append(
+            _pass(
+                "future-markout",
+                "future-only-markouts",
+                "Future-only markouts are present or not required.",
+            )
+        )
 
     stale = [fill for fill in fills if fill.get("reason_code") == "stale-book"]
     if stale:
-        gates.append(_fail("stale-book", "stale-book-used", "At least one fill referenced a stale book."))
+        gates.append(
+            _fail("stale-book", "stale-book-used", "At least one fill referenced a stale book.")
+        )
     else:
         gates.append(_pass("stale-book", "no-stale-book-fills", "No stale-book fills were used."))
     return gates

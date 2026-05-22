@@ -4,18 +4,20 @@ Quality gates are small fail-closed checks over replay reports. They are designe
 
 ## Report contract
 
-A JSON report contains three top-level sections:
+A JSON report contains four top-level sections:
 
-- `assumptions`: serialized `ExecutionAssumptionProfile` including `safety_level` and `fee_model`;
+- `schema_version`: currently `replay-realism-report/v1`;
+- `assumptions`: serialized `ExecutionAssumptionProfile` including `description`, `safety_level`, and `fee_model`;
 - `summary`: counts and aggregate fee totals;
 - `fills`: fill rows with reason codes, evidence, and markout status.
 
-The Markdown report is a human-readable review of the same data plus gate outcomes.
+The Markdown report is a human-readable review of the same data plus gate outcomes. See `docs/report-schema.md` for the full JSON contract.
 
 ## Built-in gates
 
 | Gate | Pass condition | Failure reason |
 | --- | --- | --- |
+| `report-shape` / `report-consistency` | `fills` is a list and `summary.fill_count == len(fills)` | `fills-not-list`, `summary-fill-count-mismatch` |
 | `assumption-profile` | `assumptions.safety_level == "reviewable"` | `optimistic-or-incomplete-assumptions` |
 | `fee-model` | an explicit fee model name is present | `missing-fee-model` |
 | `sample-count` | at least one fill row is present | `low-sample-count` |

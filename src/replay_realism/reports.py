@@ -24,6 +24,7 @@ class ReplayReport:
             row["markout"] = _markout_to_dict(markout) if markout else None
             fill_rows.append(row)
         return {
+            "schema_version": "replay-realism-report/v1",
             "assumptions": self.assumptions.to_dict(),
             "summary": {
                 "fill_count": len(fill_rows),
@@ -42,7 +43,9 @@ def write_json_report(report: ReplayReport | dict[str, Any], path: str | Path) -
 
 
 def write_markdown_report(
-    report: ReplayReport | dict[str, Any], path: str | Path, gates: list[QualityGateResult] | None = None
+    report: ReplayReport | dict[str, Any],
+    path: str | Path,
+    gates: list[QualityGateResult] | None = None,
 ) -> None:
     data = report.to_dict() if isinstance(report, ReplayReport) else report
     lines = ["# Replay Realism Review", ""]
@@ -55,7 +58,9 @@ def write_markdown_report(
     if gates is not None:
         lines.extend(["## Quality gates", ""])
         for gate in gates:
-            lines.append(f"- **{gate.severity.value.upper()}** `{gate.name}`: {gate.reason_code} — {gate.message}")
+            lines.append(
+                f"- **{gate.severity.value.upper()}** `{gate.name}`: {gate.reason_code} — {gate.message}"
+            )
         lines.append("")
     lines.extend(["## Fill rows", ""])
     for fill in data.get("fills", []):
@@ -87,5 +92,7 @@ def _fill_to_dict(fill: FillResult) -> dict[str, Any]:
 def _markout_to_dict(markout: MarkoutResult) -> dict[str, Any]:
     data = asdict(markout)
     data["midpoint"] = str(markout.midpoint) if markout.midpoint is not None else None
-    data["edge_after_fees"] = str(markout.edge_after_fees) if markout.edge_after_fees is not None else None
+    data["edge_after_fees"] = (
+        str(markout.edge_after_fees) if markout.edge_after_fees is not None else None
+    )
     return data

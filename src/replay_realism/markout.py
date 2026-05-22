@@ -34,7 +34,9 @@ def future_midpoint(
     return min(candidates, key=lambda event: event.sort_key).midpoint
 
 
-def compute_markout(fill: FillResult, midpoint: Decimal | None, horizon_ms: int = 0) -> MarkoutResult:
+def compute_markout(
+    fill: FillResult, midpoint: Decimal | None, horizon_ms: int = 0
+) -> MarkoutResult:
     if not fill.is_filled or fill.average_price is None:
         return MarkoutResult(horizon_ms, midpoint, None, "unfilled")
     if midpoint is None:
