@@ -1,39 +1,32 @@
 # Replay Realism Kit
 
-Replay Realism Kit is a small offline Python toolkit for checking whether replayed trading decisions still look plausible after conservative execution assumptions are applied.
+A deterministic execution simulator for small replay fixtures. Compare the same decisions under different fees, latency, and maker queue assumptions, and inspect why a fill succeeded or failed.
 
-Naive backtests can overstate results by assuming instant fills, zero fees, perfect queue position, fresh books, or lookahead-prone markouts. This package makes those assumptions explicit, simulates deterministic maker/taker fills over local synthetic event streams, and emits machine-readable quality gates before a replay is treated as reviewable evidence.
+The [seven-event comparison](examples/assumption-comparison/README.md) produces this result:
 
-The project is intentionally narrow: it helps engineers and LLM agents review execution realism for local replay artifacts. It is not a strategy engine or a live trading system.
+| Setting | Taker size | Maker size | Fees | Future markout after fees |
+| --- | ---: | ---: | ---: | ---: |
+| explicit zero fees | 2 | 2 | 0.00 | 1.60 |
+| fees | 2 | 2 | 0.12008 | 1.47992 |
+| fees + queue | 2 | 1 | 0.11009 | 0.98991 |
+| fees + queue + delay | 0 | 0 | 0 | 0 |
 
-## What it does
+These are invented prices and decisions, with amounts in the fixture's quote unit. The last row misses the trade and the crossable ask because arrival is later. This demonstrates sensitivity to assumptions; it provides no estimate of strategy performance or real fill probability.
 
-- Normalizes local `book`, `trade`, and `decision` events with stable `(timestamp, sequence)` ordering.
-- Applies deterministic latency and stale-book rules before a decision can use book evidence.
-- Simulates conservative maker queue fills and depth-aware taker fills.
-- Requires explicit fee assumptions, including explicit zero-fee baselines.
-- Computes future-only midpoint markouts so reports do not use pre-fill state.
-- Writes JSON and Markdown reports with fail-closed quality gates.
-- Runs fully offline on tiny CSV/YAML fixtures.
+## Try it
 
-## Non-goals and safety boundaries
-
-Replay Realism Kit is not:
-
-- a broker, exchange connector, market-data client, wallet, signing tool, or live trading bot;
-- an alpha model, portfolio optimizer, financial adviser, or data vendor;
-- a networked service, credentialed integration, or order-capable framework;
-- a venue-specific simulator or guarantee that historical fills would have happened in production.
-
-All examples are synthetic and invented for testing/documentation. They do not come from a real venue or private trading history.
-
-## First five minutes
-
-Prerequisites: Python 3.11+ and `uv`.
+Python 3.11+ and [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uv sync
-mkdir -p reports
+git clone https://github.com/matchalatteguy/replay-realism-kit.git
+cd replay-realism-kit
+uv sync --locked
+uv run python examples/assumption-comparison/compare.py
+```
+
+To generate and validate a report:
+
+```bash
 uv run replay-realism validate-events --events examples/synthetic-book/events.csv
 uv run replay-realism simulate \
   --events examples/synthetic-book/events.csv \
@@ -41,193 +34,60 @@ uv run replay-realism simulate \
   --json-out reports/replay.json \
   --maker-queue-ahead 1 \
   --markout-horizon-ms 100
-uv run replay-realism gate \
-  --report reports/replay.json \
-  --md-out reports/replay-review.md
+uv run replay-realism gate --report reports/replay.json --md-out reports/review.md
 ```
 
-Expected gate output:
+The bundled fixture passes all five default gates. JSON contains individual fill reasons, execution timestamps, fees, and markouts; Markdown adds the gate results. Commands exit `0` on success, `1` when gates fail, and `2` for unreadable or malformed input.
 
-```text
-pass: assumption-profile: reviewable-assumptions
-pass: fee-model: explicit-fee-model
-pass: sample-count: sufficient-sample-for-demo
-pass: future-markout: future-only-markouts
-pass: stale-book: no-stale-book-fills
-```
+## What is modeled
 
-Then run the local project checks:
+- Takers consume crossable depth in the first snapshot at or after order arrival. That snapshot must be within the configured time tolerance.
+- Makers fill only after opposing post-arrival trades consume a declared queue size.
+- Fees use explicit maker/taker basis points; a zero-fee baseline must be labeled explicitly.
+- Markouts use the first same-instrument book at or after the positive horizon following actual execution. For makers with multiple partial executions, the final contributing trade anchors the aggregate markout.
+- Events sort by timestamp and sequence. Arithmetic uses `Decimal` for prices, quantities, and fees.
 
-```bash
-uv run pytest
-uv run ruff check
-```
-
-For a guided walkthrough, troubleshooting table, and safe first edits, see `docs/onboarding.md`.
-
-## How the bundled example works
-
-`examples/synthetic-book/` contains a tiny invented replay story for `FOO-USD`:
-
-1. a starting top-of-book snapshot;
-2. a hypothetical taker buy decision;
-3. a future book after the configured latency;
-4. a synthetic trade row useful for maker-fill examples;
-5. a later book used for future-only markout.
-
-The event stream is deliberately small enough to inspect by eye. Use it as a format reference, not as market data.
-
-## Synthetic event format
-
-The CLI accepts a small CSV event stream with these event types:
-
-- `book`: one top-of-book snapshot row with bid/ask price and size;
-- `trade`: one post-arrival trade row used by conservative maker-fill logic;
-- `decision`: one hypothetical order decision row to replay.
-
-Rows are sorted deterministically by `(timestamp, sequence)`. Use fake instruments such as `FOO-USD`, `BAR-USD`, or `instrument-A` in examples and tests.
-
-Minimal columns used by the bundled fixture:
-
-```csv
-event_type,timestamp,sequence,instrument_id,venue_id,source,bid_price,bid_size,ask_price,ask_size,side,price,size,limit_price,order_type
-book,1000,1,FOO-USD,SIM,fixture,99.90,10,100.00,5,,,,,
-decision,1010,2,FOO-USD,SIM,fixture,,,,,buy,,2,100.00,taker
-book,1060,3,FOO-USD,SIM,fixture,99.95,10,100.00,5,,,,,
-```
-
-For the complete column contract, required fields by event type, validation errors, and adapter cautions, see `docs/event-schema.md`.
-
-## Assumption profile
-
-Assumptions are explicit YAML inputs. A profile names latency, stale-book tolerance, tick/min-size constraints, partial-fill behavior, markout requirements, and fees.
-
-```yaml
-name: conservative-demo
-latency_ms: 50
-stale_book_ms: 250
-tick_size: "0.01"
-min_size: "0.0001"
-allow_partial_fills: true
-require_future_markout: true
-fee_model:
-  name: demo-bps-fees
-  maker_bps: "1"
-  taker_bps: "5"
-  explicit_zero_fees: false
-```
-
-A profile is `reviewable` only when it avoids obviously optimistic defaults such as zero latency or very loose stale-book windows, and when future markouts are required. See `docs/assumptions.md` for details.
+The CLI accepts compact CSV `book`, `trade`, and `decision` events. Profiles are YAML. The [event schema](docs/event-schema.md), [assumption guide](docs/assumptions.md), and [fill policies](docs/fill-policies.md) define the inputs and semantics.
 
 ## Python API
 
 ```python
 from decimal import Decimal
 
-from replay_realism import (
-    BookSnapshot,
-    ExecutionAssumptionProfile,
-    FeeModel,
-    FillPolicy,
-    FillRequest,
-    OrderSide,
-    OrderType,
-    simulate_taker_fill,
-)
+from replay_realism import load_events_csv, simulate_replay
+from replay_realism.assumptions import load_assumption_profile
+from replay_realism.simulation import ReplaySimulationConfig
 
-book = BookSnapshot(
-    instrument_id="FOO-USD",
-    timestamp=1_000,
-    sequence=1,
-    bids=((Decimal("99.90"), Decimal("10")),),
-    asks=((Decimal("100.00"), Decimal("5")),),
+report = simulate_replay(
+    load_events_csv("examples/synthetic-book/events.csv"),
+    load_assumption_profile("examples/synthetic-book/assumptions.yaml"),
+    ReplaySimulationConfig(maker_queue_ahead=Decimal("1"), markout_horizon_ms=100),
 )
-assumptions = ExecutionAssumptionProfile(
-    name="explicit-demo",
-    latency_ms=50,
-    stale_book_ms=250,
-    fee_model=FeeModel(maker_bps=Decimal("1"), taker_bps=Decimal("5")),
-)
-request = FillRequest(
-    instrument_id="FOO-USD",
-    side=OrderSide.BUY,
-    order_type=OrderType.TAKER,
-    size=Decimal("2"),
-    limit_price=Decimal("100.00"),
-    decision_timestamp=950,
-    policy=FillPolicy.FAK,
-)
-fill = simulate_taker_fill(request, book, assumptions)
-assert fill.reason_code == "filled"
-assert fill.filled_size == Decimal("2")
+print(report.to_dict()["summary"])
 ```
 
-Important public objects:
+The public API also exposes individual maker/taker fill functions, request and book types, fee models, markout arithmetic, and report writers. See [API and CLI recipes](docs/api-and-cli.md).
 
-- `ReplayEvent`, `BookEvent`, `TradeEvent`, `DecisionEvent`, `load_events_csv`
-- `ExecutionAssumptionProfile`, `SafetyLevel`, `FeeModel`
-- `BookSnapshot`, `FillRequest`, `FillResult`, `OrderSide`, `OrderType`, `FillPolicy`
-- `ReplaySimulationConfig`, `simulate_replay`, `simulate_decision`
-- `simulate_taker_fill`, `simulate_maker_fill`
-- `future_midpoint`, `compute_markout`, `MarkoutResult`
-- `ReplayReport`, `write_json_report`, `write_markdown_report`
-- `validate_replay_report`, `QualityGateResult`, `GateSeverity`
+## What a passing gate means
 
-## CLI reference
+Gates check report structure, finite numeric fields, internally consistent counts and fees, typed assumptions, and required markout fields. They recompute the assumption heuristic rather than trusting a `safety_level` label supplied in JSON.
 
-```text
-replay-realism validate-events --events PATH
-replay-realism simulate --events PATH --assumptions PATH --json-out PATH [--maker-queue-ahead DECIMAL] [--markout-horizon-ms INT]
-replay-realism gate --report PATH [--md-out PATH]
-replay-realism init-example synthetic-book [--out-dir PATH]
+`reviewable` means positive latency, a configured tolerance of at most 5 seconds, and a required future markout. It is a heuristic, not a certification. A report cannot prove that its source events are authentic or that an execution model matches a venue. The `sample-count` gate only requires one decision result; it does not establish statistical adequacy. See [quality gates](docs/quality-gates.md) and the [report contract](docs/report-schema.md).
+
+## Limits
+
+This is a small, inspectable reference model. Each decision is replayed independently: orders do not share depleted liquidity, queue state, cancellations, inventory, or capital. Maker queue size is supplied rather than inferred. The CSV fixture has one book level; the Python taker primitive accepts multiple levels. The runner waits for the next snapshot instead of reconstructing a full exchange book at arrival, and maker orders have no time-in-force deadline.
+
+Hidden liquidity, venue matching rules, cross-venue routing, and full order lifecycle simulation are outside this model. Use it for fixture tests and assumption comparisons, and validate a separate execution model against appropriate data before making claims about real fills. The package makes no network calls and places no orders. All bundled events are synthetic.
+
+## Development
+
+```bash
+uv run pytest
+uv run ruff check .
+uv build
 ```
 
-The current `simulate` command is a deterministic demo runner for small local fixtures. It is meant for tests, examples, and report-shape validation rather than large historical replay jobs. Use `--maker-queue-ahead` and `--markout-horizon-ms` to make queue and future-markout assumptions explicit at the CLI boundary.
+CI runs tests and lint on Python 3.11–3.14, builds the package, and executes the installed wheel from outside the checkout. [CHANGELOG.md](CHANGELOG.md) records the `0.x` API's behavior changes. [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md) cover contributions and reporting issues.
 
-## Quality gates
-
-The default gate checks fail closed when:
-
-- assumptions are optimistic or incomplete;
-- a report is missing an explicit fee model;
-- no fill rows are present;
-- future markouts are required but missing;
-- stale-book fills appear in the report.
-
-Gate output is a list of stable `pass`/`fail` results with reason codes and human messages. Gates also fail closed on malformed report shape such as `summary.fill_count` disagreeing with the number of fill rows. See `docs/quality-gates.md` and the versioned JSON contract in `docs/report-schema.md`.
-
-## Documentation
-
-- `docs/onboarding.md` gives the first-five-minute setup path, repository map, and troubleshooting notes.
-- `docs/llm-agent-guide.md` gives guardrails for automated assistants editing the project.
-- `docs/assumptions.md` explains assumption profiles, fee handling, and safety levels.
-- `docs/event-schema.md` defines the normalized CSV contract and validation errors.
-- `docs/report-schema.md` defines the versioned JSON report contract.
-- `docs/adapter-guide.md` shows how to normalize private logs into public-safe events.
-- `docs/fill-policies.md` explains conservative maker/taker semantics and reason codes.
-- `docs/quality-gates.md` explains gate results, report contracts, and CI usage.
-- `docs/api-and-cli.md` gives task-oriented API and CLI recipes.
-- `examples/synthetic-book/README.md` walks through the bundled offline fixture.
-- `CONTRIBUTING.md` gives the local contribution workflow and public-safe checklist.
-- `PUBLIC_SAFETY_REVIEW.md` records the local public-safety review status and boundaries.
-
-## Repository map
-
-```text
-README.md                         project overview and quickstart
-CONTRIBUTING.md                    contribution workflow and public-safe checklist
-examples/synthetic-book/           tiny invented replay fixture
-examples/failure-cases/            intentional gate-failure examples
-docs/                              onboarding, API, assumption, fill, gate, and agent docs
-src/replay_realism/                package source
-tests/                             offline pytest suite
-PUBLIC_SAFETY_REVIEW.md            public-safety boundary notes
-```
-
-## Project status
-
-Alpha public-candidate. APIs are intentionally small and deterministic; broad data adapters, venue plugins, live integrations, dashboards, and large sensitivity sweeps are out of scope for the MVP.
-
-## License
-
-MIT.
+MIT licensed.

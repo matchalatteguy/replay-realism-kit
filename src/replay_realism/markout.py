@@ -21,6 +21,8 @@ def future_midpoint(
     horizon_ms: int,
     instrument_id: str | None = None,
 ) -> Decimal | None:
+    if type(horizon_ms) is not int or horizon_ms <= 0:
+        raise ValueError("markout horizon must be a positive integer")
     target = fill_timestamp + horizon_ms
     candidates = [
         event
@@ -35,8 +37,12 @@ def future_midpoint(
 
 
 def compute_markout(
-    fill: FillResult, midpoint: Decimal | None, horizon_ms: int = 0
+    fill: FillResult, midpoint: Decimal | None, horizon_ms: int = 100
 ) -> MarkoutResult:
+    if type(horizon_ms) is not int or horizon_ms <= 0:
+        raise ValueError("markout horizon must be a positive integer")
+    if midpoint is not None and (not midpoint.is_finite() or midpoint <= 0):
+        raise ValueError("markout midpoint must be finite and positive")
     if not fill.is_filled or fill.average_price is None:
         return MarkoutResult(horizon_ms, midpoint, None, "unfilled")
     if midpoint is None:

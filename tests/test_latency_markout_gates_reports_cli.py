@@ -137,15 +137,20 @@ def test_gate_fails_closed_when_required_markout_field_is_missing() -> None:
 
 
 def test_gate_exempts_unfilled_rows_from_required_markout() -> None:
-    report = {
-        "assumptions": ExecutionAssumptionProfile(
-            "demo", 10, 250, FeeModel(Decimal("1"), Decimal("5"))
-        ).to_dict(),
-        "summary": {"fill_count": 1},
-        "fills": [
-            {"reason_code": "insufficient-crossable-depth", "filled_size": "0", "markout": None}
-        ],
-    }
+    assumptions = ExecutionAssumptionProfile("demo", 10, 250, FeeModel(Decimal("1"), Decimal("5")))
+    request = FillRequest("FOO", OrderSide.BUY, OrderType.TAKER, Decimal("1"), Decimal("100"), 0)
+    fill = FillResult(
+        request,
+        10,
+        Decimal("0"),
+        Decimal("1"),
+        None,
+        Decimal("0"),
+        Decimal("0"),
+        None,
+        "insufficient-crossable-depth",
+    )
+    report = ReplayReport(assumptions, [(fill, None)]).to_dict()
 
     gates = validate_replay_report(report)
 

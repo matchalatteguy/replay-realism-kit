@@ -15,6 +15,12 @@ class FeeModel:
     explicit_zero_fees: bool = False
 
     def __post_init__(self) -> None:
+        if not isinstance(self.name, str) or not self.name.strip():
+            raise ValueError("fee model name is required")
+        if not isinstance(self.explicit_zero_fees, bool):
+            raise ValueError("explicit_zero_fees must be a boolean")
+        if not self.maker_bps.is_finite() or not self.taker_bps.is_finite():
+            raise ValueError("fee rates must be finite")
         if self.maker_bps < 0 or self.taker_bps < 0:
             raise ValueError("fee rates cannot be negative")
         if self.maker_bps == 0 and self.taker_bps == 0 and not self.explicit_zero_fees:

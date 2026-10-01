@@ -46,6 +46,7 @@ Current schema version: `replay-realism-report/v1`
 | `side` | string | `buy` or `sell`. |
 | `order_type` | string | `maker` or `taker`. |
 | `arrival_timestamp` | integer | Decision timestamp plus configured latency. |
+| `execution_timestamp` | integer or null | Actual execution: book time for takers, final contributing trade for makers. Null for no fill. Added in 0.2; absent in older v1 reports. |
 | `filled_size` | decimal string | Filled size. |
 | `remaining_size` | decimal string | Unfilled size. |
 | `average_price` | decimal string or null | Average fill price. |
@@ -60,7 +61,7 @@ Current schema version: `replay-realism-report/v1`
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `horizon_ms` | integer | Configured future horizon. |
+| `horizon_ms` | integer | Positive future horizon after actual execution. |
 | `midpoint` | decimal string or null | Future midpoint when found. |
 | `edge_after_fees` | decimal string or null | Edge after fees. |
 | `reason_code` | string | `ok` when usable; otherwise explains missing markout. |

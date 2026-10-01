@@ -86,7 +86,6 @@ docs/api-and-cli.md                task-oriented API/CLI recipes
 docs/llm-agent-guide.md            guardrails for coding agents
 src/replay_realism/                package source
 tests/                             offline pytest suite
-PUBLIC_SAFETY_REVIEW.md            public-safety boundary notes
 ```
 
 ## Troubleshooting

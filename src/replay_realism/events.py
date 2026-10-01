@@ -63,10 +63,14 @@ def load_events_csv(path: str | Path) -> list[ReplayEvent]:
         required = {"event_type", "timestamp", "sequence", "instrument_id"}
         if not reader.fieldnames:
             raise ValueError(f"events CSV missing required columns: {sorted(required)}")
+        if len(reader.fieldnames) != len(set(reader.fieldnames)):
+            raise ValueError("events CSV contains duplicate columns")
         missing = required.difference(reader.fieldnames)
         if missing:
             raise ValueError(f"events CSV missing required columns: {sorted(missing)}")
         for row_number, row in enumerate(reader, start=2):
+            if None in row or any(value is None for value in row.values()):
+                raise ValueError(f"row {row_number}: wrong column count")
             rows.append(_parse_event_row(row, row_number))
     return sort_events(rows)
 
@@ -74,7 +78,10 @@ def load_events_csv(path: str | Path) -> list[ReplayEvent]:
 def _decimal(row: dict[str, str], key: str, row_number: int, default: str = "0") -> Decimal:
     raw = row.get(key) or default
     try:
-        return Decimal(raw)
+        value = Decimal(raw)
+        if not value.is_finite():
+            raise ValueError(f"row {row_number}: {key} must be finite")
+        return value
     except InvalidOperation as exc:
         raise ValueError(f"row {row_number}: {key} is not a decimal: {raw!r}") from exc
 
@@ -111,6 +118,8 @@ def _parse_event_row(row: dict[str, str], row_number: int) -> ReplayEvent:
         ):
             if value <= 0:
                 raise ValueError(f"row {row_number}: {field_name} must be positive")
+        if bid_price > ask_price:
+            raise ValueError(f"row {row_number}: bid price exceeds ask price")
         return BookEvent(
             **base,
             bid_price=bid_price,

@@ -20,6 +20,7 @@ Before any fill logic runs, the request is rejected when it violates the assumpt
 - `min-size-violation`
 - `tick-size-violation`
 - `non-positive-request`
+- `invalid-request-number`
 
 ## Taker fills
 
@@ -30,7 +31,7 @@ For a buy request:
 1. arrival time is `decision_timestamp + latency_ms`;
 2. the book must match `instrument_id`;
 3. the book timestamp must be at or after arrival;
-4. the book must not be older than `stale_book_ms` relative to arrival;
+4. the wait from arrival until the next book must not exceed `stale_book_ms`;
 5. asks are consumed from best to worse while `ask_price <= limit_price`.
 
 For a sell request, bids are consumed from best to worse while `bid_price >= limit_price`.
@@ -76,8 +77,10 @@ Taker slippage is signed relative to the limit price:
 - buy: `average_price - limit_price`
 - sell: `limit_price - average_price`
 
-Maker fills execute at the request limit price in the MVP and report zero slippage. Fees are calculated from the explicit `FeeModel` and the filled notional.
+Maker fills execute at the request limit price in this model and report zero slippage. Fees are calculated from the explicit `FeeModel` and the filled notional.
+
+Generated markouts follow actual execution, rather than order arrival. For maker fills spread across trades, the final contributing trade anchors the aggregate markout horizon.
 
 ## Limitations
 
-The MVP uses compact deterministic primitives. It does not model hidden liquidity, probabilistic queue priority, order amendments, venue-specific matching engines, network retries, authentication, or live order placement.
+The model uses compact deterministic primitives. It does not model hidden liquidity, probabilistic queue priority, order amendments, venue-specific matching engines, network retries, authentication, or live order placement.
