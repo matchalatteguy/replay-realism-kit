@@ -3,8 +3,11 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import sys
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+
+import yaml
 
 from replay_realism.assumptions import load_assumption_profile
 from replay_realism.events import load_events_csv
@@ -48,8 +51,8 @@ def _non_negative_decimal(raw: str) -> Decimal:
         value = Decimal(raw)
     except InvalidOperation as exc:
         raise argparse.ArgumentTypeError(f"expected a decimal, got {raw!r}") from exc
-    if value < 0:
-        raise argparse.ArgumentTypeError("value must be non-negative")
+    if not value.is_finite() or value < 0:
+        raise argparse.ArgumentTypeError("value must be finite and non-negative")
     return value
 
 
@@ -58,13 +61,21 @@ def _non_negative_int(raw: str) -> int:
         value = int(raw)
     except ValueError as exc:
         raise argparse.ArgumentTypeError(f"expected an integer, got {raw!r}") from exc
-    if value < 0:
-        raise argparse.ArgumentTypeError("value must be non-negative")
+    if value <= 0:
+        raise argparse.ArgumentTypeError("value must be positive")
     return value
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    try:
+        return _run(args)
+    except (OSError, ValueError, InvalidOperation, yaml.YAMLError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+
+def _run(args: argparse.Namespace) -> int:
     if args.command == "validate-events":
         events = load_events_csv(args.events)
         print(f"validated {len(events)} events")
@@ -81,7 +92,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"wrote {args.json_out}")
         return 0
     if args.command == "gate":
-        report = json.loads(Path(args.report).read_text(encoding="utf-8"))
+        report = _load_report(Path(args.report))
         gates = validate_replay_report(report)
         if args.md_out:
             write_markdown_report(report, args.md_out, gates)
@@ -98,6 +109,25 @@ def main(argv: list[str] | None = None) -> int:
         print(f"copied {dst}")
         return 0
     raise AssertionError(args.command)
+
+
+def _load_report(path: Path) -> object:
+    def object_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"duplicate report member: {key!r}")
+            result[key] = value
+        return result
+
+    def invalid_constant(value: str) -> object:
+        raise ValueError(f"non-standard JSON constant: {value}")
+
+    return json.loads(
+        path.read_text(encoding="utf-8"),
+        object_pairs_hook=object_pairs,
+        parse_constant=invalid_constant,
+    )
 
 
 def _example_source_dir(name: str) -> Path:

@@ -1,11 +1,11 @@
 [project]
 name = "replay-realism-kit"
-version = "0.1.0"
+version = "0.2.0"
 description = "Offline execution-realism primitives for deterministic market replay."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-authors = [{ name = "Replay Realism Kit Contributors" }]
+authors = [{ name = "matchalatteguy" }]
 keywords = ["backtesting", "market-replay", "execution", "simulation", "quality-gates"]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -14,9 +14,16 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Typing :: Typed",
   "Topic :: Software Development :: Testing",
 ]
 dependencies = ["PyYAML>=6.0.1"]
+
+[project.urls]
+Homepage = "https://github.com/matchalatteguy/replay-realism-kit"
+Issues = "https://github.com/matchalatteguy/replay-realism-kit/issues"
 
 [project.scripts]
 replay-realism = "replay_realism.cli:main"

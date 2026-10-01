@@ -34,7 +34,10 @@ class BookSnapshot:
     def __post_init__(self) -> None:
         if not self.instrument_id:
             raise ValueError("instrument_id is required")
-        if any(price <= 0 or size <= 0 for price, size in (*self.bids, *self.asks)):
+        if any(
+            not price.is_finite() or not size.is_finite() or price <= 0 or size <= 0
+            for price, size in (*self.bids, *self.asks)
+        ):
             raise ValueError("book prices and sizes must be positive")
 
     @property
@@ -68,6 +71,7 @@ class FillResult:
     slippage: Decimal | None
     reason_code: str
     evidence: list[str] = field(default_factory=list)
+    execution_timestamp: int | None = None
 
     @property
     def is_filled(self) -> bool:
@@ -155,6 +159,7 @@ def simulate_taker_fill(
         slippage=signed_slippage,
         reason_code="filled" if remaining == 0 else "partial-fill",
         evidence=evidence,
+        execution_timestamp=book.timestamp,
     )
 
 
@@ -172,6 +177,7 @@ def simulate_maker_fill(
     filled = Decimal("0")
     notional = Decimal("0")
     evidence: list[str] = []
+    execution_timestamp = None
     for trade in sorted(trades, key=lambda event: event.sort_key):
         if trade.timestamp < arrival or trade.instrument_id != request.instrument_id:
             continue
@@ -197,6 +203,7 @@ def simulate_maker_fill(
             remaining_order -= take
             filled += take
             notional += take * request.limit_price
+            execution_timestamp = trade.timestamp
             evidence.append(f"maker@{trade.timestamp}:{take}")
         if remaining_order == 0:
             break
@@ -205,6 +212,8 @@ def simulate_maker_fill(
         return _empty(request, arrival, reason, evidence)
     if not assumptions.allow_partial_fills and remaining_order > 0:
         return _empty(request, arrival, "partial-fill-not-allowed", evidence)
+    if request.policy == FillPolicy.FOK and remaining_order > 0:
+        return _empty(request, arrival, "fok-not-filled", evidence)
     fee = assumptions.fee_model.fee_for(notional, "maker")
     return FillResult(
         request=request,
@@ -217,10 +226,18 @@ def simulate_maker_fill(
         slippage=Decimal("0"),
         reason_code="filled" if remaining_order == 0 else "partial-fill",
         evidence=evidence,
+        execution_timestamp=execution_timestamp,
     )
 
 
 def _validate_request(request: FillRequest, assumptions: ExecutionAssumptionProfile) -> str | None:
+    if (
+        not request.size.is_finite()
+        or not request.limit_price.is_finite()
+        or not request.queue_ahead.is_finite()
+        or request.queue_ahead < 0
+    ):
+        return "invalid-request-number"
     if request.size < assumptions.min_size:
         return "min-size-violation"
     if _violates_tick(request.limit_price, assumptions.tick_size):

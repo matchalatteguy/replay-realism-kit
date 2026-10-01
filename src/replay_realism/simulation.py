@@ -31,10 +31,10 @@ class ReplaySimulationConfig:
     markout_horizon_ms: int = 100
 
     def __post_init__(self) -> None:
-        if self.maker_queue_ahead < 0:
+        if not self.maker_queue_ahead.is_finite() or self.maker_queue_ahead < 0:
             raise ValueError("maker_queue_ahead cannot be negative")
-        if self.markout_horizon_ms < 0:
-            raise ValueError("markout_horizon_ms cannot be negative")
+        if type(self.markout_horizon_ms) is not int or self.markout_horizon_ms <= 0:
+            raise ValueError("markout_horizon_ms must be a positive integer")
 
 
 def simulate_replay(
@@ -61,7 +61,9 @@ def simulate_replay(
         fill = simulate_decision(decision, book_events, trade_events, assumptions, settings)
         midpoint = future_midpoint(
             ordered_events,
-            fill.arrival_timestamp,
+            fill.execution_timestamp
+            if fill.execution_timestamp is not None
+            else fill.arrival_timestamp,
             settings.markout_horizon_ms,
             instrument_id=fill.request.instrument_id,
         )
@@ -86,9 +88,20 @@ def simulate_decision(
     if request.order_type == OrderType.TAKER:
         book = first_eligible_book(book_events, decision.instrument_id, arrival)
         if book is None:
-            return simulate_maker_fill(request, [], assumptions)
+            return FillResult(
+                request,
+                arrival,
+                Decimal("0"),
+                request.size,
+                None,
+                Decimal("0"),
+                Decimal("0"),
+                None,
+                "no-book-after-arrival",
+            )
         return simulate_taker_fill(request, book_event_to_snapshot(book), assumptions)
-    return simulate_maker_fill(request, list(trade_events), assumptions)
+    eligible_trades = [trade for trade in trade_events if trade.sort_key > decision.sort_key]
+    return simulate_maker_fill(request, eligible_trades, assumptions)
 
 
 def decision_to_fill_request(

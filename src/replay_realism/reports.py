@@ -49,11 +49,15 @@ def write_markdown_report(
 ) -> None:
     data = report.to_dict() if isinstance(report, ReplayReport) else report
     lines = ["# Replay Realism Review", ""]
-    lines.append(f"Assumption profile: `{data['assumptions'].get('name')}`")
-    lines.append(f"Safety level: `{data['assumptions'].get('safety_level')}`")
-    lines.append(f"Fill count: {data['summary'].get('fill_count', 0)}")
-    lines.append(f"Filled count: {data['summary'].get('filled_count', 0)}")
-    lines.append(f"Fee total: {data['summary'].get('fee_total', '0')}")
+    assumptions = data.get("assumptions") if isinstance(data, dict) else None
+    assumptions = assumptions if isinstance(assumptions, dict) else {}
+    summary = data.get("summary") if isinstance(data, dict) else None
+    summary = summary if isinstance(summary, dict) else {}
+    lines.append(f"Assumption profile: `{assumptions.get('name', 'missing')}`")
+    lines.append(f"Safety level: `{assumptions.get('safety_level', 'missing')}`")
+    lines.append(f"Fill count: {summary.get('fill_count', 0)}")
+    lines.append(f"Filled count: {summary.get('filled_count', 0)}")
+    lines.append(f"Fee total: {summary.get('fee_total', '0')}")
     lines.append("")
     if gates is not None:
         lines.extend(["## Quality gates", ""])
@@ -63,9 +67,13 @@ def write_markdown_report(
             )
         lines.append("")
     lines.extend(["## Fill rows", ""])
-    for fill in data.get("fills", []):
+    rows = data.get("fills", []) if isinstance(data, dict) else []
+    for fill in rows if isinstance(rows, list) else []:
+        if not isinstance(fill, dict):
+            lines.append("- Invalid fill row")
+            continue
         lines.append(
-            f"- `{fill['reason_code']}` filled={fill['filled_size']} remaining={fill['remaining_size']} fee={fill['fee']} evidence={', '.join(fill.get('evidence', [])) or 'none'}"
+            f"- `{fill.get('reason_code', 'missing')}` filled={fill.get('filled_size', 'missing')} remaining={fill.get('remaining_size', 'missing')} fee={fill.get('fee', 'missing')} evidence={str(fill.get('evidence', [])) or 'none'}"
         )
     output = Path(path)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -78,6 +86,7 @@ def _fill_to_dict(fill: FillResult) -> dict[str, Any]:
         "side": fill.request.side.value,
         "order_type": fill.request.order_type.value,
         "arrival_timestamp": fill.arrival_timestamp,
+        "execution_timestamp": fill.execution_timestamp,
         "filled_size": str(fill.filled_size),
         "remaining_size": str(fill.remaining_size),
         "average_price": str(fill.average_price) if fill.average_price is not None else None,
