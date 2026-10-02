@@ -1,86 +1,48 @@
-# Fill policies
+# Fill policies and causal timing
 
-Replay Realism Kit simulates simple, deterministic fills over local events. The goal is not to predict a venue perfectly; it is to avoid optimistic replay evidence.
+The runner replays each decision independently. It does not carry liquidity depletion, queue position, inventory, or capital between orders.
 
-## Shared request model
+## Request and arrival
 
-A `FillRequest` contains:
+`FillRequest` includes the instrument and venue, side, type, size, limit, decision timestamp, optional decision sequence, maker queue, policy, and `maker_lifetime_ms`. Arrival is decision timestamp plus profile latency. Tick, minimum size, finite numbers, non-negative queue, and positive lifetime are validated.
 
-- `instrument_id`
-- `side`: `buy` or `sell`
-- `order_type`: `maker` or `taker`
-- `size`
-- `limit_price`
-- `decision_timestamp`
-- `queue_ahead` for maker examples
-- `policy`: `fill-and-kill` or `fill-or-kill`
+## Takers
 
-Before any fill logic runs, the request is rejected when it violates the assumption profile:
+The runner selects the latest matching snapshot known at arrival, then consumes asks ascending for a buy or bids descending for a sell. Only prices at or better than the limit are eligible. A snapshot after arrival is rejected, and true snapshot age `arrival − book.timestamp` must not exceed `stale_book_ms`. Taker execution occurs immediately at arrival; a later quote cannot change it.
 
-- `min-size-violation`
-- `tick-size-violation`
-- `non-positive-request`
-- `invalid-request-number`
+At zero latency, same-timestamp books must have a lower sequence than the decision. At positive latency, all market updates at the arrival timestamp are assumed to precede the synthetic order arrival. This tie convention is explicit and requires an adapter compatible with the input stream.
 
-## Taker fills
+`fill-and-kill` accepts available partial size and reports the remainder. `fill-or-kill` discards the whole tentative fill when depth is insufficient. `allow_partial_fills: false` also discards incomplete fills. Rejected tentative depth is never reported as an actual fill trace.
 
-Taker fills consume displayed book depth at or better than the limit price after latency is applied.
+## Makers
 
-For a buy request:
+A maker buy consumes eligible sell prints at or below its limit; a maker sell consumes buy prints at or above its limit. Eligible volume first consumes the supplied queue, then fills the order at its limit. Each source print can supply only its recorded volume to a single independent decision. Queue and fill traces share that available-volume constraint.
 
-1. arrival time is `decision_timestamp + latency_ms`;
-2. the book must match `instrument_id`;
-3. the book timestamp must be at or after arrival;
-4. the wait from arrival until the next book must not exceed `stale_book_ms`;
-5. asks are consumed from best to worse while `ask_price <= limit_price`.
+At positive latency, trades must have a timestamp strictly after arrival. At zero latency, later sequence numbers at the decision timestamp are also eligible. Trades at or after `arrival + maker_lifetime_ms` are excluded; expiry is exclusive.
 
-For a sell request, bids are consumed from best to worse while `bid_price >= limit_price`.
+An order is complete when it fills or the matching market evidence reaches its expiry. A log ending earlier leaves `completion_reason: incomplete-evidence`, including partial orders, and fails the maker observation gate. A fully filled order needs no unnecessary tail. In the direct `simulate_maker_fill` API, pass `observed_until_timestamp` when a surrounding market log establishes coverage beyond the supplied trade list; otherwise its last matching trade is the evidence end.
 
-Reason codes include:
+Maker FOK here means the entire requested quantity must complete within the synthetic lifetime; it is an offline all-or-none test over that window. It does not represent a venue's immediate FOK instruction.
 
-- `filled`
-- `partial-fill`
-- `instrument-mismatch`
-- `book-before-arrival`
-- `stale-book`
-- `insufficient-crossable-depth`
-- `fok-not-filled`
+## Trace, fees, and markouts
 
-## Fill-and-kill versus fill-or-kill
+Trace items contain execution/queue quantity, reference price, source price and side, source timestamp and sequence, and available source quantity. Takers also retain the selected book timestamp and sequence. Notional is the sum of actual `price × quantity`; fees apply the configured basis points to filled notional. Taker slippage is relative to the request limit (buy: average minus limit; sell: limit minus average), and maker slippage is zero in this model.
 
-`fill-and-kill` accepts any crossable partial quantity and reports the unfilled remainder.
+Markout gross amount is `(future midpoint × filled quantity − notional) × side direction`, minus fees. Using notional avoids multiplying a rounded weighted-average price back into quantity. The aggregate horizon starts after actual execution; the last contributing maker trade anchors multi-part fills. Select the earliest matching future book within the maximum markout delay. Missing observations remain unavailable.
 
-`fill-or-kill` rejects the entire request unless the full requested size is available within the limit price. When it rejects, the reason code is `fok-not-filled` and `filled_size` is zero.
+## Main fill reasons
 
-## Maker fills
+| Reason | Meaning |
+| --- | --- |
+| `filled`, `partial-fill` | Positive executed quantity, with zero or positive remainder. |
+| `no-book-at-arrival` | Runner found no causally known matching snapshot. |
+| `book-after-arrival`, `book-after-decision-sequence` | Direct primitive received unavailable quote evidence. |
+| `stale-book` | Known quote exceeds the maximum age. |
+| `instrument-mismatch` | Direct snapshot does not match the instrument or venue. |
+| `insufficient-crossable-depth` | No displayed quantity within the limit. |
+| `maker-expired` | No fill within a completely observed lifetime. |
+| `maker-evidence-incomplete` | No fill and the data ends before expiry. |
+| `fok-not-filled`, `partial-fill-not-allowed` | Tentative partial fill was rejected by policy. |
+| `min-size-violation`, `tick-size-violation`, `non-positive-request`, `invalid-request-number`, `invalid-request` | Request rejected by validation. |
 
-Maker fills are intentionally conservative. A maker request does not fill merely because a later trade touches the limit price. It fills only after post-arrival opposing trade volume consumes the declared `queue_ahead` quantity.
-
-For a maker buy request, a post-arrival sell trade can consume the queue when `trade.price <= limit_price`. For a maker sell request, a post-arrival buy trade can consume the queue when `trade.price >= limit_price`.
-
-The simulator records evidence strings such as:
-
-- `queue@1070:1` when volume consumed queue ahead;
-- `maker@1070:2` when residual volume filled the request.
-
-Reason codes include:
-
-- `filled`
-- `partial-fill`
-- `queue-not-exhausted`
-- `no-post-arrival-trade`
-
-## Slippage and fees
-
-Taker slippage is signed relative to the limit price:
-
-- buy: `average_price - limit_price`
-- sell: `limit_price - average_price`
-
-Maker fills execute at the request limit price in this model and report zero slippage. Fees are calculated from the explicit `FeeModel` and the filled notional.
-
-Generated markouts follow actual execution, rather than order arrival. For maker fills spread across trades, the final contributing trade anchors the aggregate markout horizon.
-
-## Limitations
-
-The model uses compact deterministic primitives. It does not model hidden liquidity, probabilistic queue priority, order amendments, venue-specific matching engines, network retries, authentication, or live order placement.
+Snapshots persist until the next update or staleness rejection. The model does not infer unobserved depth changes, hidden liquidity, queue amendments, cancellations, maker marketability, actual venue priority, or shared portfolio effects. Source completeness and execution realism need external evidence.

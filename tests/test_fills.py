@@ -31,7 +31,7 @@ def no_partial_profile() -> ExecutionAssumptionProfile:
 def test_taker_fill_consumes_depth_and_fok_differs() -> None:
     book = BookSnapshot(
         "FOO",
-        20,
+        5,
         1,
         bids=((Decimal("99"), Decimal("1")),),
         asks=((Decimal("100"), Decimal("1")), (Decimal("101"), Decimal("1"))),
@@ -60,7 +60,7 @@ def test_taker_fill_consumes_depth_and_fok_differs() -> None:
 def test_taker_fill_honors_no_partial_assumption() -> None:
     book = BookSnapshot(
         "FOO",
-        20,
+        5,
         1,
         bids=((Decimal("99"), Decimal("1")),),
         asks=((Decimal("100"), Decimal("1")),),

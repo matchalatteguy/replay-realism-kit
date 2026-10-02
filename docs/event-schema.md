@@ -1,83 +1,45 @@
-# Event CSV schema
+# Event inputs
 
-Replay Realism Kit accepts one compact, synthetic, top-of-book CSV shape. It is intentionally a normalization target for small fixtures, not a venue-native market-data format.
+Load local `.csv` for compact one-level books or `.jsonl` for multiple depth levels. Both normalize into the same immutable event types. Timestamps are integer milliseconds on a caller-defined clock. Sequence numbers are non-negative integers.
 
-Rows are sorted by `(timestamp, sequence)` after loading. Timestamps are integer milliseconds in an arbitrary local clock chosen by the fixture author. `instrument_id` values should be synthetic or generic, for example `FOO-USD` or `instrument-A`.
+Events are deterministically ordered by `(timestamp, sequence, instrument_id, venue_id)`. An event key `(timestamp, sequence, instrument_id, venue_id)` must be unique across all event types. Conflicting sources cannot silently overwrite an event. Unknown metadata such as an auxiliary ISO UTC `observed_at` field is ignored; it never changes execution timing.
 
-## Shared columns
+## Shared fields
 
-| Column | Required | Type | Notes |
-| --- | --- | --- | --- |
-| `event_type` | yes | enum | One of `book`, `trade`, `decision`. |
-| `timestamp` | yes | integer | Event timestamp in milliseconds. |
-| `sequence` | yes | integer | Tie-breaker for events with equal timestamps. |
-| `instrument_id` | yes | string | Non-empty normalized instrument key. |
-| `venue_id` | no | string | Defaults to `synthetic`. Keep generic/public-safe. |
-| `source` | no | string | Defaults to `local`. Keep generic/public-safe. |
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `event_type` | yes | `book`, `trade`, or `decision`. |
+| `timestamp` | yes | Integer milliseconds; strings containing an integer are accepted in CSV. |
+| `sequence` | yes | Non-negative integer, used to resolve same-time events. |
+| `instrument_id` | yes | Non-empty normalized instrument string. |
+| `venue_id` | no | Non-empty string; defaults to `synthetic`. |
+| `source` | no | Non-empty string; defaults to `local`. |
 
-## `book` rows
+Prices and quantities must be finite and positive. Decimal strings preserve the intended input precision. Books with `bid > ask`, duplicate price levels, missing sides, or zero depth are rejected. Locked books are accepted.
 
-A `book` row represents one top-of-book snapshot. It is not a full order book.
+## Multi-level JSONL
 
-| Column | Required | Type | Validation |
-| --- | --- | --- | --- |
-| `bid_price` | yes | decimal | Must be positive. |
-| `bid_size` | yes | decimal | Must be positive. |
-| `ask_price` | yes | decimal | Must be positive. |
-| `ask_size` | yes | decimal | Must be positive. |
+One JSON object per line; blank lines are ignored. JSON duplicate member names and non-standard `NaN`/`Infinity` constants are rejected.
 
-Example:
+```jsonl
+{"event_type":"book","timestamp":100,"sequence":0,"instrument_id":"FOO-USD","venue_id":"SIM","bids":[["99.90","3"],["99.80","5"]],"asks":[["100.00","1"],["100.05","2"]]}
+{"event_type":"decision","timestamp":110,"sequence":1,"instrument_id":"FOO-USD","venue_id":"SIM","side":"buy","size":"3","limit_price":"100.05","order_type":"taker"}
+{"event_type":"trade","timestamp":140,"sequence":2,"instrument_id":"FOO-USD","venue_id":"SIM","side":"sell","price":"99.90","size":"1.5"}
+```
+
+`bids` and `asks` are arrays of `[price, size]` pairs. Levels are normalized best-first (descending bids, ascending asks). Both sides are required when either array is present. JSONL also accepts the scalar book fields below.
+
+## Compact CSV
 
 ```csv
 event_type,timestamp,sequence,instrument_id,venue_id,source,bid_price,bid_size,ask_price,ask_size,side,price,size,limit_price,order_type
-book,1000,1,FOO-USD,SIM,fixture,99.90,10,100.00,5,,,,,
+book,100,0,FOO-USD,SIM,fixture,99.90,3,100.00,1,,,,,
+decision,110,1,FOO-USD,SIM,fixture,,,,,buy,,3,100.05,taker
+trade,140,2,FOO-USD,SIM,fixture,,,,,sell,99.90,1.5,,
 ```
 
-## `trade` rows
+Each CSV row must match the header width. Headers must be unique and non-empty; shared columns are required. Extra metadata columns are accepted. `book` rows require positive `bid_price`, `bid_size`, `ask_price`, and `ask_size`. `trade` rows require `side` (`buy`/`sell`), positive `price`, and positive `size`. `decision` rows require `side`, positive `size`, and positive `limit_price`; `order_type` defaults to `taker` or can be `maker`.
 
-A `trade` row is post-arrival evidence used by conservative maker-fill examples.
+Validation raises a `ValueError` identifying the row or field. The CLI prints a clean error and exits `2` before simulation. See the [stress fixture](../examples/execution-stress/events.jsonl) for a complete multi-instrument input, including future observations and maker expiry coverage.
 
-| Column | Required | Type | Validation |
-| --- | --- | --- | --- |
-| `side` | yes | enum | `buy` or `sell`. |
-| `price` | yes | decimal | Must be positive. |
-| `size` | yes | decimal | Must be positive. |
-
-Example:
-
-```csv
-trade,1070,4,FOO-USD,SIM,fixture,,,,,sell,100.00,3,,
-```
-
-## `decision` rows
-
-A `decision` row is a hypothetical order decision to replay after configured latency.
-
-| Column | Required | Type | Validation |
-| --- | --- | --- | --- |
-| `side` | yes | enum | `buy` or `sell`. |
-| `size` | yes | decimal | Must be positive. |
-| `limit_price` | yes | decimal | Must be positive. |
-| `order_type` | no | enum | `maker` or `taker`; defaults to `taker`. |
-
-Example:
-
-```csv
-decision,1010,2,FOO-USD,SIM,fixture,,,,,buy,,2,100.00,taker
-```
-
-## Common validation errors
-
-The parser raises `ValueError` with a row number for invalid data. Examples:
-
-- missing required shared columns: `events CSV missing required columns: [...]`
-- unsupported event type: `row 2: unsupported event_type 'quote'`
-- empty instrument: `row 2: instrument_id is required`
-- bad integer: `row 2: timestamp is not an integer: 'abc'`
-- bad decimal: `row 2: bid_price is not a decimal: 'abc'`
-- bad enum: `row 2: decision side must be buy or sell`
-- non-positive size/price: `row 2: size must be positive`
-
-## Adapter guidance
-
-Normalize private or venue-specific replay logs into this public CSV shape outside the repository. Keep the raw source data elsewhere, commit only synthetic fixtures, and preserve enough generic `source`/`venue_id` labels for tests without leaking real venues, accounts, hostnames, paths, or strategy context.
+Normalize source logs outside this repository and retain rights and provenance separately. Only small invented fixtures are bundled. Accepted metadata and a passing report cannot verify the authenticity or completeness of a source stream.

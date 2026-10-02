@@ -1,0 +1,6 @@
+name,decision_count,filled_count,markout_count,markout_coverage,fee_total,edge_after_fees,gate_failure_count,delta_filled_count,delta_fee_total,delta_edge_after_fees
+reference,8,8,8,1,0.36004,-1.16004,0,0,0.00000,0.00000
+higher-fees,8,8,8,1,1.5002,-2.3002,0,0,1.14016,-1.14016
+queue-ahead,8,7,7,1,0.32003,-0.92003,0,-1,-0.04001,0.24001
+slower-arrival,8,5,5,1,0.13499,0.36501,0,-3,-0.22505,1.52505
+short-maker-life,8,8,8,1,0.34502,-1.74502,0,0,-0.01502,-0.58498

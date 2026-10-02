@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Literal
 
+from replay_realism.arithmetic import reference_arithmetic
+
 LiquidityRole = Literal["maker", "taker"]
 
 
@@ -30,6 +32,7 @@ class FeeModel:
     def explicit_zero(cls, name: str = "explicit-zero-fee-baseline") -> FeeModel:
         return cls(Decimal("0"), Decimal("0"), name=name, explicit_zero_fees=True)
 
+    @reference_arithmetic
     def fee_for(self, notional: Decimal, role: LiquidityRole) -> Decimal:
         bps = self.maker_bps if role == "maker" else self.taker_bps
         return (abs(notional) * bps) / Decimal("10000")

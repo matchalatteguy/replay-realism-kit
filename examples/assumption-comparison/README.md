@@ -1,22 +1,20 @@
-# Fees, queue size, and latency on the same decisions
+# A small fee, queue, and latency comparison
 
-Run from the repository root:
+The original seven-event, two-decision example remains available:
 
 ```bash
 uv run python examples/assumption-comparison/compare.py
 ```
 
-The seven CSV events include a taker buy and maker buy, both of size 2. With 10 ms latency the taker reaches the 100.10 ask at time 120 and the maker reaches the sell trade of size 3 at time 130. A queue of 2 leaves only 1 unit for the maker. With 50 ms latency, arrival is time 150: the sell trade has already occurred, and the next ask at time 200 exceeds the taker limit.
-
-The first two cases change fees only. The next case adds a maker queue of 2. The final case also raises latency to 50 ms. Each filled row uses a 100 ms horizon after actual execution; the book at time 250 provides midpoint 100.40 for the filled cases.
+Version 0.3 uses the known book at arrival: at t=110, the taker consumes the 100.00 ask from t=100. At t=150, it consumes the 100.10 ask known since t=120. The maker starts after arrival, expires after 100 ms, and consumes eligible sell volume at t=130 only in the low-latency cases. Its queue of 2 leaves 1 unit from that print.
 
 | Setting | Taker size | Maker size | Fees | Future markout after fees |
 | --- | ---: | ---: | ---: | ---: |
-| explicit zero fees | 2 | 2 | 0.00 | 1.60 |
-| fees | 2 | 2 | 0.12008 | 1.47992 |
-| fees + queue | 2 | 1 | 0.11009 | 0.98991 |
-| fees + queue + delay | 0 | 0 | 0 | 0 |
+| explicit zero fees | 2 | 2 | 0.00 | 1.80 |
+| fees | 2 | 2 | 0.11998 | 1.68002 |
+| fees + queue | 2 | 1 | 0.10999 | 1.19001 |
+| fees + queue + delay | 2 | 0 | 0.1001 | 0.4999 |
 
-Fee rates are 5 basis points for takers and 1 for makers. For the second row, taker fees are `2 × 100.10 × 5 / 10000 = 0.10010`; maker fees are `2 × 99.90 × 1 / 10000 = 0.01998`. The markout before fees is `2 × (100.40 − 100.10) + 2 × (100.40 − 99.90) = 1.60`, leaving `1.47992`.
+Fee rates are 5 bps for takers and 1 bps for makers. The fee-only row has taker fees `2 × 100.00 × 5 / 10000 = 0.10000`, maker fees `2 × 99.90 × 1 / 10000 = 0.01998`, and gross markout `2 × (100.40 − 100.00) + 2 × (100.40 − 99.90) = 1.80`.
 
-All amounts are in the invented fixture's quote unit. These are arithmetic examples of assumption sensitivity, not forecasts, realized returns, statistical estimates, or evidence about any venue. Tests lock the table to the implemented simulator so it cannot drift from its example.
+All events are invented. This compact arithmetic example uses complete future marks; the first-class [execution stress study](../execution-stress/README.md) additionally retains failure gates, unavailable aggregates, multi-level trace accounting, and a bounded scenario sweep.

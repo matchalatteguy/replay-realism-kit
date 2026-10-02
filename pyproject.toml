@@ -1,7 +1,7 @@
 [project]
 name = "replay-realism-kit"
-version = "0.2.0"
-description = "Offline execution-realism primitives for deterministic market replay."
+version = "0.3.0"
+description = "Offline execution-assumption comparisons with causal replay and trace accounting."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -40,6 +40,7 @@ packages = ["src/replay_realism"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "examples/synthetic-book" = "replay_realism/examples/synthetic-book"
+"examples/execution-stress" = "replay_realism/examples/execution-stress"
 
 [tool.ruff]
 line-length = 100

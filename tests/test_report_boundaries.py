@@ -192,7 +192,7 @@ def test_comparison_fixture_has_expected_cost_queue_and_latency_effects():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     rows = module.comparison_rows()
-    assert [row["edge_after_fees"] for row in rows] == ["1.60", "1.47992", "0.98991", "0"]
+    assert [row["edge_after_fees"] for row in rows] == ["1.80", "1.68002", "1.19001", "0.4999"]
     assert [row["maker_size"] for row in rows] == ["2", "2", "1", "0"]
 
 

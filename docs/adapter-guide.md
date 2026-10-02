@@ -1,17 +1,17 @@
 # Adapter guide
 
-Replay Realism Kit deliberately does not include venue adapters or live integrations. The reusable boundary is the normalized event model in `replay_realism.events` and the small CSV schema documented in `docs/event-schema.md`.
+Replay Realism Kit deliberately does not include venue adapters or live integrations. The reusable boundary is the normalized event model in `replay_realism.events` and the CSV/JSONL schema documented in `docs/event-schema.md`.
 
-Use this guide when you have private or venue-specific replay logs and want a public-safe synthetic fixture or a local-only CI check.
+Use this guide when you have private or venue-specific replay logs and want a synthetic fixture or a local-only CI check.
 
 ## Recommended adapter pattern
 
 1. Keep raw/private data outside this repository.
 2. Write a project-local conversion script in your private workspace.
-3. Map records into `BookEvent`, `TradeEvent`, and `DecisionEvent` or into the documented CSV columns.
+3. Map records into `BookEvent`, `TradeEvent`, and `DecisionEvent` or into the documented CSV/JSONL fields.
 4. Replace real identifiers with generic fixture identifiers before committing examples.
-5. Run `replay-realism validate-events` on the normalized CSV.
-6. Commit only small synthetic CSV/YAML examples and expected behavior tests.
+5. Run `replay-realism validate-events` on the normalized events.
+6. Commit only small synthetic CSV/JSONL/YAML examples and expected behavior tests.
 
 ## Python mapping example
 
@@ -61,8 +61,8 @@ Do not add:
 - network clients, API keys, account identifiers, wallets, signing flows, or live order code;
 - real venue dumps, account exports, production hostnames, local absolute paths, or private strategy names;
 - large historical datasets or generated reports as committed artifacts;
-- code that implies the tiny top-of-book simulator proves real fills.
+- code that implies the snapshot reference model proves real fills.
 
 ## Extension seam
 
-If you need richer input data, keep the adapter outside this public package and convert down to the current schema. If the public schema grows later, changes should be introduced as a new documented schema version rather than implicit CSV columns.
+JSONL supports multiple depth levels. Preserve source ordering, millisecond units, and separate instrument/venue keys. Include future observations and enough market coverage for attempted maker expiry windows. Document assumptions about timestamp ties, snapshots persisting between updates, and source completeness. Keep venue-specific adapters outside this package.
