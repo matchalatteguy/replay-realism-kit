@@ -15,6 +15,15 @@ def profile() -> ExecutionAssumptionProfile:
 def test_simulate_replay_sorts_events_and_uses_instrument_scoped_markout() -> None:
     events = [
         BookEvent(
+            timestamp=100,
+            sequence=0,
+            instrument_id="FOO",
+            bid_price=Decimal("99"),
+            bid_size=Decimal("1"),
+            ask_price=Decimal("100"),
+            ask_size=Decimal("3"),
+        ),
+        BookEvent(
             timestamp=130,
             sequence=3,
             instrument_id="BAR",

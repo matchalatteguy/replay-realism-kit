@@ -13,7 +13,7 @@ The fixture has five rows:
 
 1. `book` at timestamp `1000`: initial top-of-book snapshot.
 2. `decision` at timestamp `1010`: hypothetical taker buy for size `2` with limit `100.00`.
-3. `book` at timestamp `1060`: first eligible book after the configured `50 ms` latency.
+3. `book` at timestamp `1060`: known update at order arrival after the configured `50 ms` latency.
 4. `trade` at timestamp `1070`: synthetic sell trade used by maker-fill examples.
 5. `book` at timestamp `1200`: later midpoint used for a future-only markout.
 

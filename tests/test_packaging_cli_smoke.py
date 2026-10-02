@@ -69,3 +69,57 @@ def test_built_wheel_installs_and_runs_cli_example(tmp_path: Path) -> None:
 
     assert report.exists()
     assert markdown.exists()
+
+    # Exercise the packaged multi-level example and comparison/sweep from outside the checkout.
+    run(
+        [str(replay_realism), "init-example", "execution-stress", "--out-dir", str(example_out)],
+        cwd=tmp_path,
+    )
+    stress = example_out / "execution-stress"
+    comparison = tmp_path / "comparison.json"
+    summary_csv = tmp_path / "comparison.csv"
+    summary_md = tmp_path / "comparison.md"
+    run(
+        [
+            str(replay_realism),
+            "compare",
+            "--events",
+            str(stress / "events.jsonl"),
+            "--scenarios",
+            str(stress / "scenarios.yaml"),
+            "--json-out",
+            str(comparison),
+            "--csv-out",
+            str(summary_csv),
+            "--md-out",
+            str(summary_md),
+        ],
+        cwd=tmp_path,
+    )
+    assert summary_csv.read_text() == (stress / "expected-summary.csv").read_text()
+    assert "higher-fees" in summary_md.read_text()
+    run(
+        [
+            str(replay_realism),
+            "compare",
+            "--events",
+            str(stress / "events.jsonl"),
+            "--scenarios",
+            str(stress / "sweep.yaml"),
+            "--json-out",
+            str(tmp_path / "sweep.json"),
+        ],
+        cwd=tmp_path,
+    )
+    import json
+
+    assert json.loads((tmp_path / "sweep.json").read_text())["scenario_count"] == 29
+    version = run(
+        [
+            str(python),
+            "-c",
+            "from importlib.metadata import version; from importlib.resources import files; import replay_realism; print(version('replay-realism-kit')); assert files(replay_realism).joinpath('py.typed').is_file()",
+        ],
+        cwd=tmp_path,
+    )
+    assert "0.3.0" in version.stdout

@@ -1,0 +1,108 @@
+schema_version: replay-realism-scenarios/v1
+baseline: reference
+quote_unit: synthetic USD
+profiles:
+- name: reference
+  assumptions:
+    latency_ms: 10
+    stale_book_ms: 250
+    tick_size: '0.01'
+    min_size: '0.0001'
+    allow_partial_fills: true
+    require_future_markout: true
+    fee_model:
+      name: explicit-invented-fees
+      maker_bps: '1'
+      taker_bps: '5'
+      explicit_zero_fees: false
+  simulation:
+    maker_queue_ahead: '0'
+    markout_horizon_ms: 100
+    maker_lifetime_ms: 300
+    markout_max_delay_ms: 200
+- name: higher-fees
+  assumptions:
+    latency_ms: 10
+    stale_book_ms: 250
+    tick_size: '0.01'
+    min_size: '0.0001'
+    allow_partial_fills: true
+    require_future_markout: true
+    fee_model:
+      name: explicit-invented-fees
+      maker_bps: '5'
+      taker_bps: '20'
+      explicit_zero_fees: false
+  simulation:
+    maker_queue_ahead: '0'
+    markout_horizon_ms: 100
+    maker_lifetime_ms: 300
+    markout_max_delay_ms: 200
+- name: queue-ahead
+  assumptions:
+    latency_ms: 10
+    stale_book_ms: 250
+    tick_size: '0.01'
+    min_size: '0.0001'
+    allow_partial_fills: true
+    require_future_markout: true
+    fee_model:
+      name: explicit-invented-fees
+      maker_bps: '1'
+      taker_bps: '5'
+      explicit_zero_fees: false
+  simulation:
+    maker_queue_ahead: '3'
+    markout_horizon_ms: 100
+    maker_lifetime_ms: 300
+    markout_max_delay_ms: 200
+- name: slower-arrival
+  assumptions:
+    latency_ms: 80
+    stale_book_ms: 250
+    tick_size: '0.01'
+    min_size: '0.0001'
+    allow_partial_fills: true
+    require_future_markout: true
+    fee_model:
+      name: explicit-invented-fees
+      maker_bps: '1'
+      taker_bps: '5'
+      explicit_zero_fees: false
+  simulation:
+    maker_queue_ahead: '0'
+    markout_horizon_ms: 100
+    maker_lifetime_ms: 300
+    markout_max_delay_ms: 200
+- name: short-maker-life
+  assumptions:
+    latency_ms: 10
+    stale_book_ms: 250
+    tick_size: '0.01'
+    min_size: '0.0001'
+    allow_partial_fills: true
+    require_future_markout: true
+    fee_model:
+      name: explicit-invented-fees
+      maker_bps: '1'
+      taker_bps: '5'
+      explicit_zero_fees: false
+  simulation:
+    maker_queue_ahead: '0'
+    markout_horizon_ms: 100
+    maker_lifetime_ms: 150
+    markout_max_delay_ms: 200
+sweep:
+  profile: reference
+  latency_ms:
+  - 10
+  - 30
+  - 80
+  - 150
+  maker_queue_ahead:
+  - '0'
+  - '2'
+  - '4'
+  maker_lifetime_ms:
+  - 150
+  - 300

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from decimal import Decimal, DecimalException, InvalidOperation, localcontext
 from enum import StrEnum
 from typing import Any
 
+from replay_realism.arithmetic import reference_arithmetic
 from replay_realism.assumptions import SafetyLevel, profile_from_mapping
 
 
@@ -26,6 +28,7 @@ class QualityGateResult:
         return self.severity != GateSeverity.FAIL
 
 
+@reference_arithmetic
 def validate_replay_report(report: Any) -> list[QualityGateResult]:
     """Check report structure and internal consistency, without certifying real fills."""
     gates: list[QualityGateResult] = []
@@ -132,6 +135,30 @@ def validate_replay_report(report: Any) -> list[QualityGateResult]:
                 "Summary filled_count must match positive filled sizes.",
             )
         )
+    expected_marks = sum(_is_filled_row(row) and _valid_markout(row.get("markout")) for row in rows)
+    expected_rejections = dict(
+        Counter(row["reason_code"] for row in rows if _valid_fill(row) and not _is_filled_row(row))
+    )
+    if (
+        "markout_count" in summary
+        and (
+            type(summary["markout_count"]) is not int or summary["markout_count"] != expected_marks
+        )
+    ) or (
+        "rejection_counts" in summary
+        and (
+            not isinstance(summary["rejection_counts"], dict)
+            or summary["rejection_counts"] != expected_rejections
+            or any(type(value) is not int for value in summary["rejection_counts"].values())
+        )
+    ):
+        gates.append(
+            _fail(
+                "report-consistency",
+                "summary-evidence-count-mismatch",
+                "Markout or rejection counts disagree with result rows.",
+            )
+        )
     fees = [_decimal(row.get("fee")) for row in rows]
     total = _decimal(summary.get("fee_total"))
     if total is None or any(fee is None for fee in fees) or not _fee_total_matches(total, fees):
@@ -172,6 +199,57 @@ def validate_replay_report(report: Any) -> list[QualityGateResult]:
         gates.append(
             _pass("stale-book", "no-stale-book-fills", "No stale-book rejection was reported.")
         )
+    config = report.get("simulation_config")
+    if config is not None:
+        if not _valid_config(config):
+            gates.append(
+                _fail(
+                    "execution-evidence",
+                    "invalid-simulation-config",
+                    "Simulation configuration is invalid.",
+                )
+            )
+        elif profile is not None and any(
+            not _execution_consistent(row, profile, config) for row in rows
+        ):
+            gates.append(
+                _fail(
+                    "execution-evidence",
+                    "execution-trace-mismatch",
+                    "Trace quantities, causal timing, expiry, or markout timing disagree.",
+                )
+            )
+        else:
+            gates.append(
+                _pass(
+                    "execution-evidence",
+                    "consistent-execution-trace",
+                    "Trace accounting and declared timing are internally consistent.",
+                )
+            )
+    if config is not None:
+        incomplete = any(row.get("completion_reason") == "incomplete-evidence" for row in rows)
+        gates.append(
+            _fail(
+                "maker-observation",
+                "incomplete-maker-window",
+                "Market evidence ends before an uncompleted maker order expires.",
+            )
+            if incomplete
+            else _pass(
+                "maker-observation",
+                "complete-maker-windows",
+                "Maker orders fill or have evidence through exclusive expiry.",
+            )
+        )
+        if any(row.get("reason_code") == "no-book-at-arrival" for row in rows):
+            gates.append(
+                _fail(
+                    "arrival-book",
+                    "missing-arrival-book",
+                    "A taker decision has no causally available book.",
+                )
+            )
     return gates
 
 
@@ -280,7 +358,7 @@ def _consistent_fill(row: dict[str, Any], profile: Any) -> bool:
                 midpoint = _decimal(markout["midpoint"])
                 edge = _decimal(markout["edge_after_fees"])
                 direction = Decimal("1") if row["side"] == "buy" else Decimal("-1")
-                expected_edge = (midpoint - price) * direction * size - fee
+                expected_edge = (midpoint * size - notional) * direction - fee
                 if not _close(edge, expected_edge):
                     return False
             return True
@@ -317,3 +395,212 @@ def _pass(name: str, reason_code: str, message: str) -> QualityGateResult:
 
 def _fail(name: str, reason_code: str, message: str) -> QualityGateResult:
     return QualityGateResult(name, GateSeverity.FAIL, reason_code, message)
+
+
+def _valid_config(config: Any) -> bool:
+    if not isinstance(config, dict):
+        return False
+    queue = _decimal(config.get("maker_queue_ahead"))
+    return (
+        queue is not None
+        and queue >= 0
+        and all(
+            type(config.get(name)) is int and config[name] > 0
+            for name in ("maker_lifetime_ms", "markout_horizon_ms", "markout_max_delay_ms")
+        )
+    )
+
+
+def _execution_consistent(row: dict[str, Any], profile: Any, config: dict[str, Any]) -> bool:
+    if not _valid_fill(row):
+        return False
+    try:
+        with localcontext() as context:
+            context.prec = 28
+            requested = _decimal(row.get("requested_size"))
+            limit = _decimal(row.get("limit_price"))
+            size = _decimal(row["filled_size"])
+            remaining = _decimal(row["remaining_size"])
+            decision = row.get("decision_timestamp")
+            sequence = row.get("decision_sequence")
+            arrival = row["arrival_timestamp"]
+            execution = row.get("execution_timestamp")
+            if (
+                limit is None
+                or limit <= 0
+                or requested is None
+                or requested <= 0
+                or not _close(requested, size + remaining)
+                or type(decision) is not int
+                or type(sequence) is not int
+                or sequence < 0
+                or arrival != decision + profile.latency_ms
+            ):
+                return False
+            if row.get("queue_ahead") != config["maker_queue_ahead"]:
+                return False
+            trace = row.get("trace")
+            if not isinstance(trace, list):
+                return False
+            if row["order_type"] == "maker":
+                expiry = row.get("expiry_timestamp")
+                end = row.get("observation_end_timestamp")
+                completion = row.get("completion_reason")
+                if expiry != arrival + config["maker_lifetime_ms"]:
+                    return False
+                # Request-constraint rejection needs no market window; all attempted makers do.
+                rejected = row["reason_code"] in (
+                    "min-size-violation",
+                    "tick-size-violation",
+                    "non-positive-request",
+                    "invalid-request-number",
+                    "invalid-request",
+                )
+                if not rejected:
+                    if end is not None and type(end) is not int:
+                        return False
+                    expected_completion = (
+                        "filled"
+                        if remaining == 0
+                        else "expired"
+                        if end is not None and end >= expiry
+                        else "incomplete-evidence"
+                    )
+                    if completion != expected_completion:
+                        return False
+            filled_quantity = Decimal("0")
+            consumed_queue = Decimal("0")
+            filled_notional = Decimal("0")
+            available = {}
+            consumed = {}
+            execution_times = []
+            previous_source_key = None
+            source_prices = {}
+            for item in trace:
+                if not isinstance(item, dict) or item.get("kind") not in ("queue", "fill"):
+                    return False
+                quantity = _decimal(item.get("quantity"))
+                price = _decimal(item.get("price"))
+                liquidity = _decimal(item.get("available_quantity"))
+                source_price = _decimal(item.get("source_price"))
+                timestamp, source_sequence = item.get("timestamp"), item.get("sequence")
+                if (
+                    source_price is None
+                    or source_price <= 0
+                    or quantity is None
+                    or price is None
+                    or liquidity is None
+                    or quantity <= 0
+                    or price <= 0
+                    or liquidity <= 0
+                    or type(timestamp) is not int
+                    or type(source_sequence) is not int
+                    or source_sequence < 0
+                ):
+                    return False
+                source_key = (timestamp, source_sequence)
+                if previous_source_key is not None and source_key < previous_source_key:
+                    return False
+                previous_source_key = source_key
+                if row["order_type"] == "taker":
+                    if (
+                        item["kind"] != "fill"
+                        or timestamp != arrival
+                        or source_sequence != row.get("book_sequence")
+                        or source_price != price
+                    ):
+                        return False
+                    key = (timestamp, source_sequence, price)
+                else:
+                    expiry = row.get("expiry_timestamp")
+                    if (
+                        expiry != arrival + config["maker_lifetime_ms"]
+                        or timestamp >= expiry
+                        or not (
+                            timestamp > arrival
+                            or (timestamp == arrival == decision and source_sequence > sequence)
+                        )
+                    ):
+                        return False
+                    if (
+                        item.get("source_side") != ("sell" if row["side"] == "buy" else "buy")
+                        or (source_price > limit if row["side"] == "buy" else source_price < limit)
+                        or (item["kind"] == "fill" and price != limit)
+                    ):
+                        return False
+                    key = (timestamp, source_sequence)
+                if key in available and available[key] != liquidity:
+                    return False
+                if key in source_prices and source_prices[key] != source_price:
+                    return False
+                source_prices[key] = source_price
+                available[key] = liquidity
+                consumed[key] = consumed.get(key, Decimal("0")) + quantity
+                if item["kind"] == "queue":
+                    consumed_queue += quantity
+                    if consumed_queue > _decimal(row["queue_ahead"]):
+                        return False
+                if item["kind"] == "fill":
+                    if price > limit if row["side"] == "buy" else price < limit:
+                        return False
+                    if row["order_type"] == "maker" and consumed_queue != _decimal(
+                        row["queue_ahead"]
+                    ):
+                        return False
+                    filled_quantity += quantity
+                    filled_notional += quantity * price
+                    execution_times.append(timestamp)
+            if any(consumed[key] > available[key] for key in consumed):
+                return False
+            if not _close(size, filled_quantity) or not _close(
+                _decimal(row["notional"]), filled_notional
+            ):
+                return False
+            if size == 0:
+                return execution is None
+            if type(execution) is not int or execution != max(execution_times):
+                return False
+            slippage = _decimal(row.get("slippage"))
+            expected_slippage = (
+                Decimal("0")
+                if row["order_type"] == "maker"
+                else (
+                    (_decimal(row["average_price"]) - limit) * (1 if row["side"] == "buy" else -1)
+                )
+            )
+            if slippage is None or not _close(slippage, expected_slippage):
+                return False
+            if (
+                row["order_type"] == "maker"
+                and row.get("observation_end_timestamp") is not None
+                and row["observation_end_timestamp"] < execution
+            ):
+                return False
+            if row["order_type"] == "taker":
+                book = row.get("book_timestamp")
+                book_sequence = row.get("book_sequence")
+                if (
+                    type(book) is not int
+                    or type(book_sequence) is not int
+                    or book_sequence < 0
+                    or book > arrival
+                    or arrival - book > profile.stale_book_ms
+                    or (arrival == decision == book and book_sequence >= sequence)
+                ):
+                    return False
+            markout = row.get("markout")
+            if _valid_markout(markout):
+                observation = markout.get("observation_timestamp")
+                target = execution + config["markout_horizon_ms"]
+                if (
+                    type(markout.get("observation_sequence")) is not int
+                    or markout["observation_sequence"] < 0
+                    or type(observation) is not int
+                    or observation < target
+                    or observation - target > config["markout_max_delay_ms"]
+                    or markout["horizon_ms"] != config["markout_horizon_ms"]
+                ):
+                    return False
+            return True
+    except (DecimalException, TypeError, KeyError, ValueError):
+        return False

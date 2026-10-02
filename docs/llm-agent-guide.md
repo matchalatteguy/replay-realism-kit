@@ -1,6 +1,6 @@
 # LLM agent guide
 
-Replay Realism Kit is deliberately small, offline, and public-safe. This guide is for coding agents and automated assistants editing the repository.
+Replay Realism Kit is deliberately offline and focused. This guide is for coding agents and automated assistants editing the repository.
 
 ## Mission
 
@@ -28,7 +28,7 @@ All fixtures and docs must use invented instruments such as `FOO-USD`, `BAR-USD`
 ## Useful commands
 
 ```bash
-uv sync
+uv sync --locked
 uv run pytest
 uv run ruff check
 uv run replay-realism validate-events --events examples/synthetic-book/events.csv
@@ -46,7 +46,7 @@ Generated `reports/` outputs are for local inspection and are ignored by Git.
 - Deterministic by default: stable sorting, explicit timestamps, no hidden randomness.
 - Fail closed: missing assumptions should fail gates rather than silently pass.
 - Decimal-safe where prices, sizes, notional, and fees are involved.
-- Future-only evidence: fills and markouts should not use pre-arrival or pre-fill state.
+- Causal evidence: fills use known state at arrival; markouts use future state after actual execution.
 - Offline examples: tests should run without credentials, network, or external services.
 - Small public API: add new concepts only when the README can explain them briefly.
 
@@ -57,7 +57,7 @@ Generated `reports/` outputs are for local inspection and are ignored by Git.
 | Add a reason code | Add or update a failing test, implement the behavior, document the reason code in `docs/fill-policies.md` or `docs/quality-gates.md`. |
 | Add a CLI flag | Update parser help, tests, `docs/api-and-cli.md`, and the quickstart if the flag changes first-use behavior. |
 | Change report shape | Update `ReplayReport`, gate validation, tests, and the report contract section in `docs/quality-gates.md`. |
-| Add example data | Keep it tiny, synthetic, human-readable CSV/YAML, and explain the event story in the example README. |
+| Add example data | Keep it tiny, synthetic, human-readable CSV/JSONL/YAML, and explain the event story in the example README. |
 
 ## Public-safety checklist for agents
 

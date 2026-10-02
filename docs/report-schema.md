@@ -1,114 +1,77 @@
-# Replay report schema
+# Report contracts
 
-Generated JSON reports are intended to be stable enough for small CI checks and automated review loops.
+Numeric prices, quantities, fees, and markouts serialize as decimal strings. Counts and millisecond timestamps are JSON integers. Unknown future fields can be ignored by consumers; use version fields and reason codes when applying policy.
 
-Current schema version: `replay-realism-report/v1`
+## Single replay: `replay-realism-report/v1`
 
-## Top-level object
+The existing v1 required fields remain: `schema_version`, `assumptions`, `summary`, and `fills`. Version 0.3 adds `engine_version: "0.3.0"`, `order_model: "independent"`, and `simulation_config` for generated causal reports. Older complete reports without simulation configuration receive structural/arithmetic checks; they carry no new trace verification.
 
-| Field | Type | Required | Stability |
-| --- | --- | --- | --- |
-| `schema_version` | string | yes | Stable for v1 reports. |
-| `assumptions` | object | yes | Stable keys for v1. |
-| `summary` | object | yes | Stable keys for v1. |
-| `fills` | array | yes | Stable row keys for v1. |
+`assumptions` contains the typed profile, fee model, and recomputed heuristic label. `simulation_config` records `maker_queue_ahead` as a decimal string and positive integer horizon, lifetime, and maximum observation-delay fields.
 
-## `assumptions`
+`summary` includes `fill_count` (decision-result rows, including rejections), `filled_count` (positive-fill rows), `fee_total`, `markout_count`, and `rejection_counts` keyed by reason. A partial execution counts as one positive-filled decision.
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `name` | string | Assumption profile name. |
-| `latency_ms` | integer | Fixed latency applied to each decision. |
-| `stale_book_ms` | integer | Maximum acceptable book age for taker fills. |
-| `tick_size` | decimal string | Minimum price increment used by callers/fixtures. |
-| `min_size` | decimal string | Minimum order size used by callers/fixtures. |
-| `allow_partial_fills` | boolean | Whether partial fills are allowed. |
-| `require_future_markout` | boolean | Whether filled rows must have future-only markouts. |
-| `description` | string | Human context from the YAML profile. |
-| `safety_level` | string | `reviewable`, `optimistic`, or `incomplete`. |
-| `fee_model` | object | Explicit maker/taker fee model. |
+### Fill rows
 
-`fee_model` contains `name`, `maker_bps`, `taker_bps`, and `explicit_zero_fees`.
+| Fields | Types and meaning |
+| --- | --- |
+| `decision_id` | Stable SHA-256 identifier derived from venue, instrument, decision time, and sequence. |
+| `instrument_id`, `venue_id`, `side`, `order_type` | Decision market and instruction. |
+| `decision_timestamp`, `decision_sequence` | Integer source decision key. |
+| `requested_size`, `limit_price`, `queue_ahead` | Decimal strings; requested size equals fill plus remainder. |
+| `arrival_timestamp` | Decision time plus latency. |
+| `execution_timestamp` | Arrival for takers; last contributing trade for makers; `null` when unfilled. |
+| `book_timestamp`, `book_sequence` | Taker source snapshot key; otherwise `null`. |
+| `expiry_timestamp` | Exclusive maker expiry; otherwise `null`. |
+| `observation_end_timestamp` | Last matching market event, for maker-window coverage; otherwise `null`. |
+| `completion_reason` | Maker `filled`, `expired`, or `incomplete-evidence`; `null` for takers and request-constraint rejections. |
+| `filled_size`, `remaining_size`, `notional`, `fee` | Decimal strings. |
+| `average_price`, `slippage` | Decimal strings, or `null` for no fill. |
+| `reason_code`, `evidence` | Machine-readable reason and legacy human-readable evidence strings. |
+| `trace` | Structured actual fill/queue accounting; rejected tentative fills are omitted. |
+| `markout` | Future observation object or `null`. |
 
-## `summary`
+Each trace item has `kind` (`fill`/`queue`), integer `timestamp` and `sequence`, and decimal-string `price`, `quantity`, `available_quantity`, and `source_price`. Maker `source_side` identifies the opposing print; takers use `null`. Taker trace time is execution/arrival, while its sequence identifies the retained source snapshot. Maker trace time and sequence identify a trade. Maker fill price is the request limit; source price preserves the observed trade price.
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `fill_count` | integer | Must equal `len(fills)`. Gates fail closed on mismatch. |
-| `filled_count` | integer | Rows with `filled_size > 0`. |
-| `fee_total` | decimal string | Sum of row fees. |
+Within a single decision, summed consumed volume cannot exceed a source event's available quantity. Across decisions, liquidity is intentionally reused by this independent-order model. The trace is an internal explanation; it cannot prove that a supplied source event occurred.
 
-## Fill rows
+A markout contains positive integer `horizon_ms`, `midpoint` and `edge_after_fees` as decimal strings or `null`, `reason_code`, and optional observation timestamp/sequence. `ok` requires a positive fill and valid future midpoint. Aggregate maker horizons start at the last partial execution.
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `instrument_id` | string | Instrument from the decision/fill request. |
-| `side` | string | `buy` or `sell`. |
-| `order_type` | string | `maker` or `taker`. |
-| `arrival_timestamp` | integer | Decision timestamp plus configured latency. |
-| `execution_timestamp` | integer or null | Actual execution: book time for takers, final contributing trade for makers. Null for no fill. Added in 0.2; absent in older v1 reports. |
-| `filled_size` | decimal string | Filled size. |
-| `remaining_size` | decimal string | Unfilled size. |
-| `average_price` | decimal string or null | Average fill price. |
-| `notional` | decimal string | Filled notional. |
-| `fee` | decimal string | Fee charged by explicit fee model. |
-| `slippage` | decimal string or null | Taker slippage when applicable. |
-| `reason_code` | string | Stable machine-readable fill reason. |
-| `evidence` | array[string] | Synthetic evidence references. |
-| `markout` | object or null | Future-only markout result. |
+## Comparison: `replay-realism-comparison/v1`
 
-## Markout object
+| Field | Meaning |
+| --- | --- |
+| `engine_version`, `order_model` | Reference engine version and `independent` abstraction. |
+| `baseline`, `quote_unit` | Named reference profile and caller-declared common fee/markout unit. |
+| `event_count`, `decision_count`, `scenario_count` | Integer counts. |
+| `gate_failure_count` | Total failed gates across all scenarios; zero is a necessary check, not a scientific conclusion. |
+| `study_sha256` | Hash of semantic baseline, quote unit, assumptions, and simulation settings. |
+| `events_sha256` | CLI-only SHA-256 of raw event-file bytes. The Python API accepts typed events and omits this file hash. |
+| `scenarios` | Ordered named profiles, followed by all sweep combinations. |
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `horizon_ms` | integer | Positive future horizon after actual execution. |
-| `midpoint` | decimal string or null | Future midpoint when found. |
-| `edge_after_fees` | decimal string or null | Edge after fees. |
-| `reason_code` | string | `ok` when usable; otherwise explains missing markout. |
+Each scenario contains:
 
-## Minimal example
+- `name`, serialized `assumptions`, and `config`;
+- `summary`, `gates`, and integer `gate_failure_count`;
+- `report`: embedded single-replay v1 report with complete traces;
+- `delta_from_baseline`: signed filled-decision count and decimal-string fee delta; edge delta is a decimal string or `null`.
 
-```json
-{
-  "schema_version": "replay-realism-report/v1",
-  "assumptions": {
-    "name": "conservative-demo",
-    "latency_ms": 50,
-    "stale_book_ms": 250,
-    "tick_size": "0.01",
-    "min_size": "0.0001",
-    "allow_partial_fills": true,
-    "require_future_markout": true,
-    "description": "Synthetic conservative fixture.",
-    "safety_level": "reviewable",
-    "fee_model": {
-      "name": "demo-bps-fees",
-      "maker_bps": "1",
-      "taker_bps": "5",
-      "explicit_zero_fees": false
-    }
-  },
-  "summary": {"fill_count": 1, "filled_count": 1, "fee_total": "0.05"},
-  "fills": [
-    {
-      "instrument_id": "FOO-USD",
-      "side": "buy",
-      "order_type": "taker",
-      "arrival_timestamp": 1060,
-      "filled_size": "1",
-      "remaining_size": "0",
-      "average_price": "100.00",
-      "notional": "100.00",
-      "fee": "0.05",
-      "slippage": "0",
-      "reason_code": "filled",
-      "evidence": ["depth@100.00:1"],
-      "markout": {"horizon_ms": 100, "midpoint": "100.25", "edge_after_fees": "0.20", "reason_code": "ok"}
-    }
-  ]
-}
+Comparison summary fields:
+
+| Field | Type and rule |
+| --- | --- |
+| `decision_count`, `filled_count`, `markout_count` | Integers. Markout count counts positive-filled decisions with `ok` marks. |
+| `markout_coverage` | Decimal string `markout_count / filled_count`; `null` when no decisions fill. |
+| `fee_total` | Sum of all row fees, in the declared quote unit. |
+| `edge_after_fees` | Sum of row edges only when at least one decision fills and every filled decision has a markout; otherwise `null`. |
+| `rejection_counts` | Zero-filled decision counts by reason. |
+| `instruments` | Sorted instrument/venue summaries: requested size, filled size, and fill ratio as decimal strings. Quantities are never summed across instruments. |
+
+Each gate has `name`, `severity`, `reason_code`, and `message`. Automation should use reason codes; human text may change. Compare retains failed scenarios and missing fields, and exits `1` for any failed gate.
+
+### Stable comparison CSV
+
+```text
+name,decision_count,filled_count,markout_count,markout_coverage,fee_total,edge_after_fees,gate_failure_count,delta_filled_count,delta_fee_total,delta_edge_after_fees
 ```
 
-## Gate stability
-
-Reason codes are treated as the stable automation boundary within a major schema version. Human messages may become clearer over time, but code should key on `reason_code`, not the full message text.
+One row per scenario in JSON order. Missing coverage/edge/delta fields are empty CSV cells. All decimals retain the JSON string representation. Markdown contains the summary table plus rejection and failed-gate reasons. [The tested expected CSV](../examples/execution-stress/expected-summary.csv) is a compact complete example.

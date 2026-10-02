@@ -1,202 +1,108 @@
-# API and CLI usage notes
+# API and CLI recipes
 
-This page gives task-oriented recipes for outside engineers and LLM agents using Replay Realism Kit on small local fixtures. If you are setting up the repository for the first time, start with `docs/onboarding.md`; this page is the reference for day-to-day command and API use.
+All commands operate on local files. Event input extension selects compact CSV or multi-level JSONL. Use Python 3.11–3.14.
 
-## Command summary
+## Compare profiles and sweeps
 
-```text
-replay-realism validate-events --events PATH
-replay-realism simulate --events PATH --assumptions PATH --json-out PATH [--maker-queue-ahead DECIMAL] [--markout-horizon-ms INT]
-replay-realism gate --report PATH [--md-out PATH]
-replay-realism init-example synthetic-book [--out-dir PATH]
+```bash
+uv run replay-realism compare \
+  --events examples/execution-stress/events.jsonl \
+  --scenarios examples/execution-stress/scenarios.yaml \
+  --json-out reports/comparison.json --csv-out reports/comparison.csv --md-out reports/comparison.md
 ```
 
-All commands are offline and operate on local files.
+Replace `scenarios.yaml` with `sweep.yaml` for the 29-case study. Every result remains visible, including failed gates. See [scenarios](scenarios.md), [report contracts](report-schema.md), and the [stress study](../examples/execution-stress/README.md).
 
-## Validate local events
+```python
+from replay_realism import compare_scenarios, load_events, load_scenarios
 
-Use `validate-events` before running a replay. It loads the CSV, validates event-specific fields, and applies deterministic `(timestamp, sequence)` ordering.
+result = compare_scenarios(
+    load_events("examples/execution-stress/events.jsonl"),
+    load_scenarios("examples/execution-stress/scenarios.yaml"),
+)
+for scenario in result["scenarios"]:
+    print(scenario["name"], scenario["summary"]["markout_coverage"])
+```
+
+Programmatic studies use `Scenario(name, assumptions, config)` and `ScenarioStudy(baseline, quote_unit, scenarios)`. `write_json_report`, `write_comparison_csv`, and `write_comparison_markdown` accept the returned comparison dictionary.
+
+## Single-profile replay
 
 ```bash
 uv run replay-realism validate-events --events examples/synthetic-book/events.csv
-```
-
-Expected output shape:
-
-```text
-validated 5 events
-```
-
-For the full CSV contract, see `docs/event-schema.md`. Parser errors include row numbers and field names so invalid rows can be fixed without reverse engineering the loader.
-
-## Simulate a replay
-
-`simulate` reads local events and an assumption profile, then writes a JSON report.
-
-```bash
 uv run replay-realism simulate \
   --events examples/synthetic-book/events.csv \
   --assumptions examples/synthetic-book/assumptions.yaml \
-  --json-out reports/replay.json \
-  --maker-queue-ahead 1 \
-  --markout-horizon-ms 100
+  --maker-queue-ahead 1 --maker-lifetime-ms 1000 \
+  --markout-horizon-ms 100 --markout-max-delay-ms 1000 \
+  --json-out reports/replay.json
+uv run replay-realism gate --report reports/replay.json --md-out reports/review.md
 ```
 
-The MVP simulator is intentionally compact. It is best for:
-
-- smoke-testing report shape;
-- demonstrating conservative taker and maker fill behavior;
-- creating fixtures for quality-gate tests;
-- teaching future-only markout rules.
-
-It is not intended as a high-throughput historical data engine. Use `--maker-queue-ahead` when you want maker examples to assume a different amount of synthetic size ahead of the order, and `--markout-horizon-ms` when your fixture has a different future-book spacing.
-
-## Programmatic replay simulation
-
-Use `simulate_replay` when you want the same deterministic report-building behavior as the CLI without shelling out:
+The fixture validates five events and yields one positive taker fill with a future markout. `simulate` writes evidence with exit `0`; `gate` checks it. Malformed input exits `2`, failed gates exit `1`, and successful checks exit `0`.
 
 ```python
 from decimal import Decimal
-
-from replay_realism import ReplaySimulationConfig, load_events_csv, simulate_replay
+from replay_realism import ReplaySimulationConfig, load_events, simulate_replay
 from replay_realism.assumptions import load_assumption_profile
 
-assumptions = load_assumption_profile("examples/synthetic-book/assumptions.yaml")
-events = load_events_csv("examples/synthetic-book/events.csv")
 report = simulate_replay(
-    events,
-    assumptions,
-    ReplaySimulationConfig(maker_queue_ahead=Decimal("1"), markout_horizon_ms=100),
+    load_events("examples/synthetic-book/events.csv"),
+    load_assumption_profile("examples/synthetic-book/assumptions.yaml"),
+    ReplaySimulationConfig(maker_queue_ahead=Decimal("1")),
 )
-assert report.to_dict()["summary"]["fill_count"] >= 1
+assert report.to_dict()["summary"]["filled_count"] == 1
 ```
 
-## Gate a report
-
-`gate` validates report evidence and optionally writes a Markdown review.
-
-```bash
-uv run replay-realism gate \
-  --report reports/replay.json \
-  --md-out reports/replay-review.md
-```
-
-Exit codes:
-
-- `0`: all required gates passed;
-- `1`: one or more required gates failed.
-
-## Initialize the example fixture
-
-Copy the bundled synthetic fixture to a new location without overwriting existing files:
-
-```bash
-uv run replay-realism init-example synthetic-book --out-dir scratch-examples
-```
-
-This creates `scratch-examples/synthetic-book/`.
-
-## Programmatic taker fill
+## Individual fill primitives
 
 ```python
 from decimal import Decimal
-
 from replay_realism import (
-    BookSnapshot,
-    ExecutionAssumptionProfile,
-    FeeModel,
-    FillRequest,
-    OrderSide,
-    OrderType,
-    simulate_taker_fill,
+    BookSnapshot, ExecutionAssumptionProfile, FeeModel, FillRequest,
+    OrderSide, OrderType, TradeEvent, simulate_taker_fill, simulate_maker_fill,
 )
 
 assumptions = ExecutionAssumptionProfile(
-    name="conservative-demo",
-    latency_ms=50,
-    stale_book_ms=250,
-    fee_model=FeeModel(maker_bps=Decimal("1"), taker_bps=Decimal("5")),
+    "reference", 50, 250, FeeModel(Decimal("1"), Decimal("5")),
 )
 request = FillRequest(
-    instrument_id="FOO-USD",
-    side=OrderSide.BUY,
-    order_type=OrderType.TAKER,
-    size=Decimal("2"),
-    limit_price=Decimal("100.00"),
-    decision_timestamp=1_010,
+    "FOO-USD", OrderSide.BUY, OrderType.TAKER,
+    Decimal("2"), Decimal("100"), 1010, venue_id="SIM",
 )
 book = BookSnapshot(
-    instrument_id="FOO-USD",
-    timestamp=1_060,
-    sequence=3,
+    "FOO-USD", 1000, 1,
     bids=((Decimal("99.95"), Decimal("10")),),
-    asks=((Decimal("100.00"), Decimal("5")),),
+    asks=((Decimal("100"), Decimal("5")),), venue_id="SIM",
 )
-
 fill = simulate_taker_fill(request, book, assumptions)
-assert fill.reason_code == "filled"
-```
+assert fill.execution_timestamp == 1060
+assert fill.book_timestamp == 1000
 
-## Programmatic maker fill
-
-```python
-from decimal import Decimal
-
-from replay_realism import (
-    ExecutionAssumptionProfile,
-    FeeModel,
-    FillRequest,
-    OrderSide,
-    OrderType,
-    TradeEvent,
-    simulate_maker_fill,
+maker = FillRequest(
+    "FOO-USD", OrderSide.BUY, OrderType.MAKER,
+    Decimal("2"), Decimal("100"), 1010,
+    queue_ahead=Decimal("1"), maker_lifetime_ms=300, venue_id="SIM",
 )
-
-assumptions = ExecutionAssumptionProfile(
-    name="queue-demo",
-    latency_ms=50,
-    stale_book_ms=250,
-    fee_model=FeeModel(maker_bps=Decimal("1"), taker_bps=Decimal("5")),
-)
-request = FillRequest(
-    instrument_id="FOO-USD",
-    side=OrderSide.BUY,
-    order_type=OrderType.MAKER,
-    size=Decimal("2"),
-    limit_price=Decimal("100.00"),
-    decision_timestamp=1_010,
-    queue_ahead=Decimal("1"),
-)
-trades = [
-    TradeEvent(
-        timestamp=1_070,
-        sequence=4,
-        instrument_id="FOO-USD",
-        venue_id="SIM",
-        source="fixture",
-        side="sell",
-        price=Decimal("100.00"),
-        size=Decimal("3"),
-    )
+trades = [TradeEvent(
+    1070, 4, "FOO-USD", "SIM", side="sell", price=Decimal("100"), size=Decimal("3"),
+)]
+maker_fill = simulate_maker_fill(maker, trades, assumptions)
+assert maker_fill.filled_size == Decimal("2")
+assert [(item.kind, item.quantity) for item in maker_fill.trace] == [
+    ("queue", Decimal("1")), ("fill", Decimal("2")),
 ]
-
-fill = simulate_maker_fill(request, trades, assumptions)
-assert fill.evidence == ["queue@1070:1", "maker@1070:2"]
 ```
 
-## Report-writing API
+For an unfinished maker, pass a justified `observed_until_timestamp` from the surrounding market log or retain incomplete-window evidence. The direct primitive has no access to future books; the runner derives the observation end from same-market book/trade records. [Fill policies](fill-policies.md) defines the boundaries.
 
-```python
-from replay_realism import ReplayReport, validate_replay_report, write_json_report, write_markdown_report
+`compute_markout(fill, midpoint, horizon_ms=100)` performs arithmetic for a supplied positive future midpoint. The replay runner selects and retains the actual future book; the arithmetic helper cannot authenticate or time an externally supplied price.
 
-report = ReplayReport(assumptions=assumptions, fills=[(fill, None)])
-write_json_report(report, "reports/replay.json")
-gates = validate_replay_report(report.to_dict())
-write_markdown_report(report, "reports/replay-review.md", gates)
+## Installed examples
+
+```bash
+replay-realism init-example execution-stress --out-dir demo
+replay-realism init-example synthetic-book --out-dir demo
 ```
 
-If `require_future_markout` is true, pass real `MarkoutResult` objects instead of `None` for filled rows. JSON reports include `schema_version: replay-realism-report/v1`; see `docs/report-schema.md` for the stable fields and reason-code guidance.
-
-## Data hygiene
-
-Keep examples small, local, synthetic, and generic. Do not include credentials, private paths, real account identifiers, generated large datasets, or venue-specific operational history in fixtures or docs.
+Both fixtures are included in built wheels. Existing example directories are never overwritten. Report outputs may be regenerated at chosen paths, but cannot share a path or replace an input file. Keep private source data outside the repository and commit only small invented examples.

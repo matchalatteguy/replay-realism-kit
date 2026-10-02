@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import hashlib
 import json
+from collections import Counter
 from dataclasses import asdict, dataclass
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from replay_realism.arithmetic import reference_arithmetic
 from replay_realism.assumptions import ExecutionAssumptionProfile
 from replay_realism.fills import FillResult
 from replay_realism.gates import QualityGateResult
@@ -16,7 +19,9 @@ from replay_realism.markout import MarkoutResult
 class ReplayReport:
     assumptions: ExecutionAssumptionProfile
     fills: list[tuple[FillResult, MarkoutResult | None]]
+    config: dict[str, Any] | None = None
 
+    @reference_arithmetic
     def to_dict(self) -> dict[str, Any]:
         fill_rows = []
         for fill, markout in self.fills:
@@ -25,11 +30,28 @@ class ReplayReport:
             fill_rows.append(row)
         return {
             "schema_version": "replay-realism-report/v1",
+            "engine_version": "0.3.0",
+            "order_model": "independent",
+            "simulation_config": dict(self.config) if self.config is not None else None,
             "assumptions": self.assumptions.to_dict(),
             "summary": {
                 "fill_count": len(fill_rows),
                 "filled_count": sum(1 for row in fill_rows if Decimal(row["filled_size"]) > 0),
-                "fee_total": str(sum(Decimal(row["fee"]) for row in fill_rows)),
+                "fee_total": str(sum((Decimal(row["fee"]) for row in fill_rows), Decimal("0"))),
+                "markout_count": sum(
+                    1
+                    for row in fill_rows
+                    if row["markout"] is not None and row["markout"]["reason_code"] == "ok"
+                ),
+                "rejection_counts": dict(
+                    sorted(
+                        Counter(
+                            row["reason_code"]
+                            for row in fill_rows
+                            if Decimal(row["filled_size"]) == 0
+                        ).items()
+                    )
+                ),
             },
             "fills": fill_rows,
         }
@@ -82,7 +104,39 @@ def write_markdown_report(
 
 def _fill_to_dict(fill: FillResult) -> dict[str, Any]:
     return {
+        "decision_id": hashlib.sha256(
+            json.dumps(
+                [
+                    fill.request.venue_id,
+                    fill.request.instrument_id,
+                    fill.request.decision_timestamp,
+                    fill.request.decision_sequence,
+                ],
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest(),
         "instrument_id": fill.request.instrument_id,
+        "venue_id": fill.request.venue_id,
+        "decision_timestamp": fill.request.decision_timestamp,
+        "decision_sequence": fill.request.decision_sequence,
+        "requested_size": str(fill.request.size),
+        "limit_price": str(fill.request.limit_price),
+        "queue_ahead": str(fill.request.queue_ahead),
+        "expiry_timestamp": fill.expiry_timestamp,
+        "observation_end_timestamp": fill.observation_end_timestamp,
+        "completion_reason": fill.completion_reason,
+        "book_timestamp": fill.book_timestamp,
+        "book_sequence": fill.book_sequence,
+        "trace": [
+            {
+                **asdict(item),
+                "price": str(item.price),
+                "quantity": str(item.quantity),
+                "available_quantity": str(item.available_quantity),
+                "source_price": str(item.source_price) if item.source_price is not None else None,
+            }
+            for item in fill.trace
+        ],
         "side": fill.request.side.value,
         "order_type": fill.request.order_type.value,
         "arrival_timestamp": fill.arrival_timestamp,
@@ -94,7 +148,7 @@ def _fill_to_dict(fill: FillResult) -> dict[str, Any]:
         "fee": str(fill.fee),
         "slippage": str(fill.slippage) if fill.slippage is not None else None,
         "reason_code": fill.reason_code,
-        "evidence": fill.evidence,
+        "evidence": list(fill.evidence),
     }
 
 

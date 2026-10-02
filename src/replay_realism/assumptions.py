@@ -6,9 +6,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from replay_realism.fees import FeeModel
+from replay_realism.serialization import load_unique_yaml
 
 
 class SafetyLevel(StrEnum):
@@ -134,5 +133,5 @@ def profile_from_mapping(
 
 
 def load_assumption_profile(path: str | Path) -> ExecutionAssumptionProfile:
-    data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    data = load_unique_yaml(Path(path).read_text(encoding="utf-8"))
     return profile_from_mapping(data)

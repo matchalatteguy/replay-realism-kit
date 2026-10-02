@@ -1,99 +1,50 @@
 # First five minutes
 
-This guide is the shortest path from a fresh clone to a passing local replay gate. It assumes Python 3.11+ and `uv` are available.
-
-## 1. Install dependencies
+Start with Python 3.11–3.14 and uv. From a fresh checkout:
 
 ```bash
-uv sync
+uv sync --locked
+uv run replay-realism validate-events --events examples/execution-stress/events.jsonl
+uv run replay-realism compare \
+  --events examples/execution-stress/events.jsonl \
+  --scenarios examples/execution-stress/scenarios.yaml \
+  --json-out reports/comparison.json --csv-out reports/comparison.csv --md-out reports/comparison.md
 ```
 
-The package has one runtime dependency, PyYAML. Test and lint tools are installed through the development dependency group.
+Expected output: `validated 33 events`, then `compared 5 scenarios; 0 failed gates`.
 
-## 2. Run the bundled replay
+Read `reports/comparison.md` for the summary and gate reasons. In JSON, inspect `scenarios[0].report.fills[0]`: a multi-level ALPHA buy records both consumed levels, its arrival, the known source snapshot, fees, and the actual future markout. Compare queue and lifetime profiles using per-instrument fill quantities. An increased summed edge can reflect skipped losing fills, so interpret counts, quantities, and coverage together.
 
-```bash
-mkdir -p reports
-uv run replay-realism validate-events --events examples/synthetic-book/events.csv
-uv run replay-realism simulate \
-  --events examples/synthetic-book/events.csv \
-  --assumptions examples/synthetic-book/assumptions.yaml \
-  --json-out reports/replay.json
-uv run replay-realism gate \
-  --report reports/replay.json \
-  --md-out reports/replay-review.md
-```
+Use `sweep.yaml` for the full 29-case sensitivity study. Generated reports are ignored by Git. The [stress README](../examples/execution-stress/README.md) explains exact arithmetic and deliberate failure experiments.
 
-Expected terminal shape:
-
-```text
-validated 5 events
-wrote reports/replay.json
-wrote reports/replay-review.md
-pass: assumption-profile: reviewable-assumptions
-pass: fee-model: explicit-fee-model
-pass: sample-count: sufficient-sample-for-demo
-pass: future-markout: future-only-markouts
-pass: stale-book: no-stale-book-fills
-```
-
-`reports/` is ignored by Git so local smoke outputs do not pollute commits.
-
-## 3. Inspect the report
-
-Open `reports/replay-review.md`. A healthy demo report should show:
-
-- one synthetic fill row;
-- an explicit conservative assumption profile;
-- an explicit fee model;
-- a future-only markout;
-- passing fail-closed quality gates.
-
-## 4. Run project checks
+## Checks
 
 ```bash
 uv run pytest
-uv run ruff check
+uv run ruff check .
+uv build
 ```
 
-These checks are intentionally small and offline. They should not need network access after dependencies are installed.
+Core tests run offline after dependencies are installed. The packaging smoke test builds and installs a wheel in a temporary environment and may need the dependency/build cache or network access. CI executes it on Python 3.11–3.14.
 
-## 5. Change one thing safely
+## Useful references
 
-Good first edits:
-
-- adjust the synthetic assumption profile and observe which gate fails;
-- add a tiny event-row validation test;
-- document a new reason code in `docs/fill-policies.md` after adding test coverage;
-- add a small API example using `FOO-USD`, `BAR-USD`, or another invented instrument.
-
-Avoid these in first contributions:
-
-- real venue data or production identifiers;
-- credentials, API keys, account IDs, wallets, or order-capable integrations;
-- broad data adapters, dashboards, live services, or strategy/alpha claims;
-- large generated artifacts checked into the repository.
-
-## Repository map
-
-```text
-README.md                         project overview and quickstart
-examples/synthetic-book/           tiny invented replay fixture
-docs/assumptions.md                assumption profile reference
-docs/fill-policies.md              maker/taker fill semantics
-docs/quality-gates.md              gate contract and CI pattern
-docs/api-and-cli.md                task-oriented API/CLI recipes
-docs/llm-agent-guide.md            guardrails for coding agents
-src/replay_realism/                package source
-tests/                             offline pytest suite
-```
+- [Events](event-schema.md): CSV/JSONL, multi-level depth, timing, duplicate rejection.
+- [Scenarios](scenarios.md): named profiles, complete settings, bounded Cartesian sweeps.
+- [Fill policies](fill-policies.md): causal book selection, maker expiry, independent-order scope.
+- [Report schemas](report-schema.md): decimal types, nulls, trace accounting, stable CSV header.
+- [Quality gates](quality-gates.md): policy, reason codes, practical limits.
+- [API and CLI](api-and-cli.md): individual primitives and installed examples.
+- [0.3 migration](migration-0.3.md): behavior changes from earlier releases.
 
 ## Troubleshooting
 
-| Symptom | Likely cause | Fix |
-| --- | --- | --- |
-| `uv: command not found` | `uv` is not installed or not on PATH. | Install `uv` from the official Astral instructions, then reopen the shell. |
-| `ModuleNotFoundError: replay_realism` | Commands were run outside the project environment. | Use `uv run ...` from the repository root. |
-| `missing-future-markout` | The fill has no later book snapshot at the required horizon. | Add a later synthetic book row or disable the requirement only for an explicit toy baseline. |
-| `optimistic-or-incomplete-assumptions` | The profile is too loose for review. | Use non-zero latency, bounded stale-book tolerance, explicit fees, and required future markouts. |
-| `refusing to overwrite existing example directory` | `init-example` protects local files. | Choose a new `--out-dir` or move the existing copy yourself. |
+| Symptom | Check |
+| --- | --- |
+| `missing-arrival-book` | Provide a matching snapshot known before/at arrival; a later quote cannot fill the order. |
+| `stale-book` | The latest known quote is older than the configured tolerance. |
+| `missing-future-markout` | Supply a matching future book within the horizon plus maximum delay. |
+| `incomplete-maker-window` | Extend the matching market log through expiry, preserving genuine source coverage. |
+| `optimistic-or-incomplete-assumptions` | Positive latency, bounded tolerance, and required future markouts are necessary for the heuristic. |
+| `refusing to overwrite existing example directory` | Pick a fresh output directory. |
+| Input exits `2` | Inspect the row/field error; duplicate event keys and malformed shapes are rejected. |

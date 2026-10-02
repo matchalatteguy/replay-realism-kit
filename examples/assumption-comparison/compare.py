@@ -19,7 +19,7 @@ def comparison_rows() -> list[dict[str, str]]:
     rows = []
     for name, latency, queue, fee_model in cases:
         assumptions = ExecutionAssumptionProfile(name, latency, 250, fee_model)
-        report = simulate_replay(events, assumptions, ReplaySimulationConfig(queue, 100))
+        report = simulate_replay(events, assumptions, ReplaySimulationConfig(queue, 100, maker_lifetime_ms=100))
         edge = sum(
             (
                 markout.edge_after_fees

@@ -8,7 +8,7 @@ An `ExecutionAssumptionProfile` records the execution conditions that must be tr
 | --- | --- | --- |
 | `name` | Human-readable profile identifier. | Report readers need to know which policy produced the fills. |
 | `latency_ms` | Deterministic delay from decision time to order arrival. | Prevents instant-fill assumptions. |
-| `stale_book_ms` | Maximum allowed gap between arrival and the book snapshot used for taker fills. | Rejects evidence based on old books. |
+| `stale_book_ms` | Maximum age of the latest known book at arrival. | Rejects evidence based on old books. |
 | `tick_size` | Minimum valid price increment. | Catches impossible limit prices. |
 | `min_size` | Minimum valid order size. | Catches dust orders or malformed requests. |
 | `allow_partial_fills` | Whether partial fills are allowed by the profile. | Documents fill semantics for reviewers. |
@@ -73,5 +73,5 @@ The classifier is deliberately conservative. It does not prove that a result is 
 - Start with a conservative profile and relax one field at a time only when you can justify it.
 - Keep profile names stable because report artifacts include them.
 - Use synthetic instruments such as `FOO-USD` or `instrument-A` in examples.
-- Prefer deterministic latency values for tests and CI. Random latency models are outside the MVP.
+- Prefer deterministic latency values for tests and CI. Random latency models are outside this reference model.
 - Keep network, credential, broker, and venue-specific assumptions out of profiles; this project is offline-only.
